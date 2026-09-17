@@ -9,7 +9,7 @@
 
 ```mermaid
 flowchart TD
-    S[server.py<br/>MCP-сервер + 15 инструментов + валидация] --> C[client.py<br/>HTTP-клиент Jira + Tempo]
+    S[server.py<br/>MCP-сервер + 17 инструментов + валидация] --> C[client.py<br/>HTTP-клиент Jira + Tempo]
     S --> R[report.py<br/>Генератор еженедельного отчёта]
     S --> U[utils.py<br/>Разбор длительности, форматирование, tz]
     S --> CFG[config.py<br/>Загрузка env, модель Config, секреты замаскированы]

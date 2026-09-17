@@ -1,6 +1,6 @@
 # 🌐 API — MCP-инструменты
 
-Сервер открывает 15 инструментов через Model Context Protocol. Каждый
+Сервер открывает 17 инструментов через Model Context Protocol. Каждый
 инструмент определён в `src/jira_tempo_mcp/server.py` и диспетчеризуется
 через таблицу (`_TOOL_HANDLERS`).
 
@@ -15,6 +15,8 @@
 | [`create_worklog`](#-create_worklog) | Worklog'и | Учесть время на задаче Jira |
 | [`delete_worklog`](#-delete_worklog) | Worklog'и | Удалить worklog по ID |
 | [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (9 полей, включая описание) |
+| [`create_issue`](#-create_issue) | Задачи | Создать новую задачу в проекте (в том числе подзадачу) |
+| [`add_issue_comment`](#-add_issue_comment) | Задачи | Добавить комментарий к существующей задаче |
 | [`list_favorite_issues`](#-list_favorite_issues) | Задачи | Список избранных задач текущего пользователя |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Задачи | Поиск задач через JQL-запрос |
 | [`get_current_user`](#-get_current_user) | Пользователи | Данные аутентифицированного пользователя |
@@ -205,6 +207,84 @@ Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
 Description: Login fails for LDAP users after session timeout.
+```
+
+---
+
+## 🆕 `create_issue`
+
+Создать новую задачу Jira в проекте. Опционально задаётся тип задачи и
+ключ родительской задачи (для подзадач или связи с эпиком). Соответствует
+`POST /rest/api/2/issue`.
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `project_key` | string | да | Ключ целевого проекта (напр. `DEVOPS`). |
+| `summary` | string | да | Заголовок задачи. Непустой. |
+| `description` | string | нет | Описание задачи. По умолчанию пустое. |
+| `issuetype` | string | нет | Тип задачи (напр. `Task`, `Sub-task`). По умолчанию `Task`. |
+| `parent_key` | string | нет | Ключ родительской задачи (напр. `DEVOPS-100`) для подзадач или связи с эпиком. Если задан, в payload добавляется поле `parent`. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "create_issue",
+  "arguments": {
+    "project_key": "DEVOPS",
+    "summary": "Починить нестабильный интеграционный тест",
+    "description": "Сьют случайно падает на CI.",
+    "issuetype": "Task"
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Created Task DEVOPS-200 in DEVOPS.
+Issue ID: 10001
+```
+
+С `parent_key`:
+
+```text
+Created Sub-task DEVOPS-201 in DEVOPS (parent DEVOPS-100).
+Issue ID: 10002
+```
+
+---
+
+## 💬 `add_issue_comment`
+
+Добавить комментарий к существующей задаче Jira. Соответствует
+`POST /rest/api/2/issue/{key}/comment`.
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `issue_key` | string | да | Ключ задачи Jira (напр. `DEVOPS-100`) |
+| `comment` | string | да | Текст комментария. Непустой. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "add_issue_comment",
+  "arguments": {
+    "issue_key": "DEVOPS-100",
+    "comment": "Корневая причина найдена: устаревший кэш в слое авторизации."
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Added comment 10500 to DEVOPS-100.
 ```
 
 ---

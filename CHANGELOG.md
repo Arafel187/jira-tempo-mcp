@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- `create_issue` MCP tool (`server.py` + `client.py`) — creates a Jira issue via `POST /rest/api/2/issue` with project key, summary, optional description/issuetype (default `Task`), and optional `parent_key` (included as the `parent` field for subtasks or epic links). Returns the normalized `{key, id, self}` from Jira.
+- `add_issue_comment` MCP tool (`server.py` + `client.py`) — posts a comment via `POST /rest/api/2/issue/{key}/comment`; returns normalized `{id, self, body}`. Server-side and client-side validation rejects empty comments.
+- 19 tests (mock-transport client tests + handler-level tests) covering happy paths, the parent-field payload, validation errors, and API-error propagation.
+- Docs: both tools added to `docs/api.md` / `docs/api.ru.md` (tool index + full contracts), tool-count references updated 15 → 17 in `architecture.md` / `architecture.ru.md`, and both README feature tables extended.
 
 ## [0.4.3] — 2026-08-08
 

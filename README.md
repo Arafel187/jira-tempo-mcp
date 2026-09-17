@@ -38,6 +38,8 @@ Track time, list worklogs, and generate weekly reports — all from your AI agen
 | `create_worklog` | Track time on a Jira issue with a comment |
 | `delete_worklog` | Delete a worklog (undo mis-tracked time) |
 | `get_issue` | Get Jira issue metadata (summary, status, project) |
+| `create_issue` | Create a new Jira issue (optionally a subtask via parent key) |
+| `add_issue_comment` | Add a comment to an existing Jira issue |
 | `list_favorite_issues` | List favorite issues for the current user |
 | `search_users` | Search Jira users by name, surname, or username |
 | `list_user_tasks` | Get tasks assigned to a Jira user with status, priority, comments |

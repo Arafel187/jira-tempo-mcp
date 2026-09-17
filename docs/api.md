@@ -1,6 +1,6 @@
 # 🌐 API — MCP tools
 
-The server exposes 15 tools over the Model Context Protocol. Each tool is
+The server exposes 17 tools over the Model Context Protocol. Each tool is
 defined in `src/jira_tempo_mcp/server.py` and dispatched through a table
 (`_TOOL_HANDLERS`).
 
@@ -15,6 +15,8 @@ defined in `src/jira_tempo_mcp/server.py` and dispatched through a table
 | [`create_worklog`](#-create_worklog) | Worklogs | Track time on a Jira issue |
 | [`delete_worklog`](#-delete_worklog) | Worklogs | Delete a worklog by ID |
 | [`get_issue`](#-get_issue) | Issues | Get Jira issue metadata (9 fields, incl. description) |
+| [`create_issue`](#-create_issue) | Issues | Create a new issue in a project (optionally a subtask) |
+| [`add_issue_comment`](#-add_issue_comment) | Issues | Add a comment to an existing issue |
 | [`list_favorite_issues`](#-list_favorite_issues) | Issues | List favorite issues for the current user |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Issues | Search issues by JQL query |
 | [`get_current_user`](#-get_current_user) | Users | Get authenticated user info |
@@ -205,6 +207,84 @@ Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
 Description: Login fails for LDAP users after session timeout.
+```
+
+---
+
+## 🆕 `create_issue`
+
+Create a new Jira issue in a project. Optionally set an issue type and a
+parent issue key (for subtasks or epic links). Maps to
+`POST /rest/api/2/issue`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_key` | string | yes | Target project key (e.g. `DEVOPS`). |
+| `summary` | string | yes | Issue summary (title). Non-empty. |
+| `description` | string | no | Issue description. Defaults to empty. |
+| `issuetype` | string | no | Issue type name (e.g. `Task`, `Sub-task`). Defaults to `Task`. |
+| `parent_key` | string | no | Parent issue key (e.g. `DEVOPS-100`) for subtasks or epic links. When set, the `parent` field is included in the create payload. |
+
+**Example call:**
+
+```json
+{
+  "name": "create_issue",
+  "arguments": {
+    "project_key": "DEVOPS",
+    "summary": "Fix flaky integration test suite",
+    "description": "The suite fails randomly on CI.",
+    "issuetype": "Task"
+  }
+}
+```
+
+**Returns:**
+
+```text
+Created Task DEVOPS-200 in DEVOPS.
+Issue ID: 10001
+```
+
+With `parent_key`:
+
+```text
+Created Sub-task DEVOPS-201 in DEVOPS (parent DEVOPS-100).
+Issue ID: 10002
+```
+
+---
+
+## 💬 `add_issue_comment`
+
+Add a comment to an existing Jira issue. Maps to
+`POST /rest/api/2/issue/{key}/comment`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `issue_key` | string | yes | Jira issue key (e.g. `DEVOPS-100`) |
+| `comment` | string | yes | Comment text. Non-empty. |
+
+**Example call:**
+
+```json
+{
+  "name": "add_issue_comment",
+  "arguments": {
+    "issue_key": "DEVOPS-100",
+    "comment": "Root cause found: stale cache in the auth layer."
+  }
+}
+```
+
+**Returns:**
+
+```text
+Added comment 10500 to DEVOPS-100.
 ```
 
 ---
