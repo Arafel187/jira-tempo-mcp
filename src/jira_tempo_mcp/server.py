@@ -1049,10 +1049,20 @@ async def _handle_create_issue_from_template(
     # would silently orphan the whole subtree, so no child is attempted.
     parent_key = str(parent.get("key", ""))
     if not parent_key:
+        # The parent may actually exist in Jira (2xx was returned) — surface
+        # every handle the payload carries so the user can locate and clean
+        # up the orphaned parent instead of guessing.
+        evidence = []
+        if parent.get("id"):
+            evidence.append(f"id={parent['id']}")
+        if parent.get("self"):
+            evidence.append(f"self={parent['self']}")
+        evidence_str = f" ({', '.join(evidence)})" if evidence else ""
         raise JiraTempoError(
             "Jira did not return an issue key for the created parent "
-            f"({template.parent_issuetype} {parent_summary!r}) — aborting; "
-            "no children were created."
+            f"({template.parent_issuetype} {parent_summary!r}){evidence_str} "
+            "— aborting; no children were created. The parent may already "
+            "exist in Jira — check and delete it manually if unwanted."
         )
     lines = [f"Created parent {template.parent_issuetype} {parent_key}."]
 

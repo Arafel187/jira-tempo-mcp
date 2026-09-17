@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -304,6 +305,26 @@ class TestTaskTemplateRegistry:
         found = discover_task_template_overrides(str(tmp_path))
         assert list(found) == ["demo-template"]
 
+    def test_unreadable_or_binary_user_file_skipped_not_fatal(
+        self, tmp_path: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A binary or unreadable .yaml is skipped with a warning (N1).
+
+        Regression for the deep-review finding: the override loader caught
+        only ValueError, so UnicodeDecodeError/OSError from one bad file
+        crashed the whole registry build — contradicting the degradation
+        promise in docs/task-templates.md.
+        """
+        # UTF-16 BOM bytes pose as .yaml and explode read_text(utf-8) with
+        # UnicodeDecodeError; valid UTF-8 bytes would decode into garbage
+        # that _load_yaml_file reports as ValueError instead.
+        (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe" + b"\x00\x0a" * 8)
+        (tmp_path / "good.yaml").write_text(_VALID_TEMPLATE_YAML, encoding="utf-8")
+        with caplog.at_level(logging.WARNING, logger="jira_tempo_mcp.task_templates"):
+            found = discover_task_template_overrides(str(tmp_path))
+        assert list(found) == ["demo-template"]
+        assert any("binary.yaml" in rec.message for rec in caplog.records)
+
     def test_non_yaml_files_ignored(self, tmp_path: Any) -> None:
         (tmp_path / "readme.txt").write_text("not a template", encoding="utf-8")
         (tmp_path / "_private.yaml").write_text(_VALID_TEMPLATE_YAML, encoding="utf-8")
@@ -560,7 +581,7 @@ tasks:
 
         client = _client_with_transport(handler)
         try:
-            with pytest.raises(JiraTempoError, match="did not return an issue key"):
+            with pytest.raises(JiraTempoError) as exc_info:
                 await _handle_create_issue_from_template(
                     {
                         "template": "stand-preparation",
@@ -572,6 +593,13 @@ tasks:
                 )
         finally:
             await client.aclose()
+        # N2: the abort error preserves the parent's evidence (id/self) so
+        # the user can locate and clean up the orphaned parent in Jira.
+        message = str(exc_info.value)
+        assert "did not return an issue key" in message
+        assert "id=1" in message
+        assert "self=u" in message
+        assert "may already exist" in message
         # Exactly one HTTP call: the parent. No children were attempted.
         assert len(calls) == 1
 

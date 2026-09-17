@@ -261,9 +261,10 @@ def discover_task_template_overrides(config_dir: str) -> dict[str, TaskTemplate]
 
     Returns a mapping ``name -> TaskTemplate``. Files with duplicate names
     inside the same directory overwrite each other (last alphabetical wins);
-    schema errors are logged and skipped — a bad user file must not take down
-    the whole registry. An empty/missing ``config_dir`` yields an empty dict.
-    A leading ``~`` is expanded (``Path.expanduser``) so an env value like
+    unreadable/binary/schema-invalid files are logged and skipped — a bad
+    user file must not take down the whole registry. An empty/missing
+    ``config_dir`` yields an empty dict. A leading ``~`` is expanded
+    (``Path.expanduser``) so an env value like
     ``~/.mcp/jira-tempo-mcp/task-templates`` resolves in .env / systemd /
     docker contexts where no shell expands it.
     """
@@ -279,8 +280,11 @@ def discover_task_template_overrides(config_dir: str) -> dict[str, TaskTemplate]
             continue
         try:
             tpl = _load_yaml_file(path)
-        except ValueError as exc:
-            logger.warning("Skipping task template override: %s", exc)
+        except (ValueError, OSError, UnicodeDecodeError) as exc:
+            # Same degradation family as load_builtin_task_templates: an
+            # unreadable (permission/EIO) or binary file must skip with a
+            # warning, never crash the whole registry build.
+            logger.warning("Skipping task template override %s: %s", path, exc)
             continue
         templates[tpl.name] = tpl
     return templates
