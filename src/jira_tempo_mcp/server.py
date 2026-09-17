@@ -235,7 +235,7 @@ TOOLS: list[Tool] = [
                 "template": {
                     "type": "string",
                     "description": (
-                        "Task template name (e.g. 'standup-preparation'). "
+                        "Task template name (e.g. 'stand-preparation'). "
                         "Use list_issue_templates to see available names."
                     ),
                 },

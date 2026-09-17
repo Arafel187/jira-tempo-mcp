@@ -312,7 +312,7 @@ title pattern, the child subtask count, and the parent/child issue types.
 
 ```text
 Task templates (1):
-- standup-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
+- stand-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
 ```
 
 See [task-templates.md](task-templates.md) for the template file format.
@@ -335,7 +335,7 @@ call arguments (see [task-templates.md](task-templates.md)).
 
 | Name | Type | Required | Description |
 | --- | --- | --- | --- |
-| `template` | string | yes | Task template name (e.g. `standup-preparation`). |
+| `template` | string | yes | Task template name (e.g. `stand-preparation`). |
 | `project_key` | string | yes | Target project key (e.g. `DEVOPS`). |
 | `summary` | string | yes | The user's task description — rendered into the parent title (`{{ summary }}`) and available to child descriptions. |
 | `description` | string | no | Optional extra context — available to template descriptions as `{{ user_description }}`. |
@@ -346,7 +346,7 @@ call arguments (see [task-templates.md](task-templates.md)).
 {
   "name": "create_issue_from_template",
   "arguments": {
-    "template": "standup-preparation",
+    "template": "stand-preparation",
     "project_key": "DEVOPS",
     "summary": "Новый стенд ландшафта",
     "description": "пилотный стенд"

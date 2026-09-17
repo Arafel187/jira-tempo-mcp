@@ -1,8 +1,8 @@
-name: standup-preparation
+name: stand-preparation
 title: "{{ summary }}"
 description: >-
-  Подготовка стенда к стендапу.{%- if user_description %} Контекст:
-  {{ user_description }}.{% endif %} Создано из шаблона standup-preparation
+  Подготовка нового стенда.{%- if user_description %} Контекст:
+  {{ user_description }}.{% endif %} Создано из шаблона stand-preparation
   {{ today }}.
 parent_issuetype: Task
 child_issuetype: Sub-task

@@ -6,7 +6,7 @@ MCP-инструмента работают с ним: [`list_issue_templates`](
 показывает доступные шаблоны, [`create_issue_from_template`](api.ru.md#-create_issue_from_template)
 создаёт дерево задач по одному из них.
 
-Встроенные шаблоны поставляются вместе с пакетом (сейчас `standup-preparation`,
+Встроенные шаблоны поставляются вместе с пакетом (сейчас `stand-preparation`,
 15 дочерних задач); пользовательские шаблоны расширяют или заменяют их.
 
 ---
@@ -16,10 +16,10 @@ MCP-инструмента работают с ним: [`list_issue_templates`](
 Шаблоны — YAML-файлы. Ниже показаны все поддерживаемые поля:
 
 ```yaml
-name: standup-preparation        # слаг, уникальный в реестре: ^[a-z0-9][a-z0-9_-]*$
+name: stand-preparation          # слаг, уникальный в реестре: ^[a-z0-9][a-z0-9_-]*$
 title: "{{ summary }}"           # summary родителя, рендерится через jinja2
 description: >-                  # описание родителя, рендерится через jinja2;
-  Подготовка стенда к стендапу.{%- if user_description %} Контекст:  # пустое -> дублирует отрендеренный title
+  Подготовка нового стенда.{%- if user_description %} Контекст:  # пустое -> дублирует отрендеренный title
   {{ user_description }}.{% endif %}
 parent_issuetype: Task           # тип родительской задачи (по умолчанию Task)
 child_issuetype: Sub-task        # тип дочерних задач (по умолчанию Sub-task)
@@ -83,7 +83,7 @@ title.
   он никогда не кладёт сервер.
 
 ```bash
-# Заменить встроенный standup-preparation более лёгкой версией
+# Заменить встроенный stand-preparation более лёгкой версией
 JTM_TEMPLATES_DIR=~/.mcp/jira-tempo-mcp/task-templates
 ```
 

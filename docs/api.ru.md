@@ -312,7 +312,7 @@ Added comment 10500 to DEVOPS-100.
 
 ```text
 Task templates (1):
-- standup-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
+- stand-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
 ```
 
 Формат файла шаблона — в [task-templates.ru.md](task-templates.ru.md).
@@ -335,7 +335,7 @@ Task templates (1):
 
 | Имя | Тип | Обяз. | Описание |
 | --- | --- | --- | --- |
-| `template` | string | да | Имя шаблона задач (напр. `standup-preparation`). |
+| `template` | string | да | Имя шаблона задач (напр. `stand-preparation`). |
 | `project_key` | string | да | Ключ целевого проекта (напр. `DEVOPS`). |
 | `summary` | string | да | Описание задачи от вызывающего — рендерится в заголовок родителя (`{{ summary }}`) и доступно описаниям дочерних задач. |
 | `description` | string | нет | Необязательный дополнительный контекст — доступен описаниям шаблона как `{{ user_description }}`. |
@@ -346,7 +346,7 @@ Task templates (1):
 {
   "name": "create_issue_from_template",
   "arguments": {
-    "template": "standup-preparation",
+    "template": "stand-preparation",
     "project_key": "DEVOPS",
     "summary": "Новый стенд ландшафта",
     "description": "пилотный стенд"

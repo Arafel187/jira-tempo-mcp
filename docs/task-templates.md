@@ -6,7 +6,7 @@ use it: [`list_issue_templates`](api.md#-list_issue_templates) lists the
 available templates and [`create_issue_from_template`](api.md#-create_issue_from_template)
 creates the issue tree from one of them.
 
-Built-in templates ship with the package (currently `standup-preparation`,
+Built-in templates ship with the package (currently `stand-preparation`,
 15 child tasks); user-defined templates extend or replace them.
 
 ---
@@ -16,10 +16,10 @@ Built-in templates ship with the package (currently `standup-preparation`,
 Templates are YAML files. The file below shows every supported field:
 
 ```yaml
-name: standup-preparation        # slug, unique in the registry: ^[a-z0-9][a-z0-9_-]*$
+name: stand-preparation          # slug, unique in the registry: ^[a-z0-9][a-z0-9_-]*$
 title: "{{ summary }}"           # parent summary, jinja2-rendered
 description: >-                  # parent description, jinja2-rendered;
-  Подготовка стенда к стендапу.{%- if user_description %} Контекст:  # empty -> duplicates the rendered title
+  Подготовка нового стенда.{%- if user_description %} Контекст:  # empty -> duplicates the rendered title
   {{ user_description }}.{% endif %}
 parent_issuetype: Task           # parent issue type (default Task)
 child_issuetype: Sub-task        # child issue type (default Sub-task)
@@ -82,7 +82,7 @@ for `*.yaml` task templates:
   down the server.
 
 ```bash
-# Override the built-in standup-preparation with a leaner variant
+# Override the built-in stand-preparation with a leaner variant
 JTM_TEMPLATES_DIR=~/.mcp/jira-tempo-mcp/task-templates
 ```
 

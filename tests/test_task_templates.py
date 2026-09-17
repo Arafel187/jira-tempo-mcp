@@ -2,7 +2,7 @@
 
 Covers:
 - Schema validation (valid + invalid YAML shapes)
-- Built-in template loading (standup-preparation)
+- Built-in template loading (stand-preparation)
 - list_issue_templates handler
 - create_issue_from_template handler: happy path via mock transport,
   partial failure (child N fails -> created-so-far + failed flag, no rollback)
@@ -139,16 +139,16 @@ class TestTaskTemplateSchema:
 
 
 class TestBuiltinTaskTemplates:
-    def test_standup_preparation_loads(self) -> None:
+    def test_stand_preparation_loads(self) -> None:
         builtins = load_builtin_task_templates()
-        assert "standup-preparation" in builtins
-        tpl = builtins["standup-preparation"]
+        assert "stand-preparation" in builtins
+        tpl = builtins["stand-preparation"]
         assert isinstance(tpl, TaskTemplate)
         assert len(tpl.tasks) >= 14
 
-    def test_standup_preparation_covers_expected_tags(self) -> None:
+    def test_stand_preparation_covers_expected_tags(self) -> None:
         builtins = load_builtin_task_templates()
-        tpl = builtins["standup-preparation"]
+        tpl = builtins["stand-preparation"]
         tags = [t.tag for t in tpl.tasks]
         assert tags.count("[terraform]") == 2
         assert tags.count("[ansible]") == 2
@@ -163,7 +163,7 @@ class TestBuiltinTaskTemplates:
 
     def test_build_registry_includes_builtins(self) -> None:
         registry = build_task_template_registry()
-        assert "standup-preparation" in registry
+        assert "stand-preparation" in registry
 
 
 # --- Jinja2 rendering ---------------------------------------------------------
@@ -312,20 +312,20 @@ class TestTaskTemplateRegistry:
     def test_user_override_replaces_builtin_by_name(self, tmp_path: Any) -> None:
         """A user file with the same template name replaces the built-in."""
         override_yaml = """
-name: standup-preparation
+name: stand-preparation
 title: "OVERRIDE {{ summary }}"
 tasks:
   - summary: "Only one child"
 """
-        (tmp_path / "standup-preparation.yaml").write_text(override_yaml, encoding="utf-8")
+        (tmp_path / "stand-preparation.yaml").write_text(override_yaml, encoding="utf-8")
         registry = build_task_template_registry(str(tmp_path))
-        tpl = registry["standup-preparation"]
+        tpl = registry["stand-preparation"]
         assert tpl.title == "OVERRIDE {{ summary }}"
         assert len(tpl.tasks) == 1
 
     def test_registry_without_override_dir_keeps_builtin(self) -> None:
         registry = build_task_template_registry("")
-        tpl = registry["standup-preparation"]
+        tpl = registry["stand-preparation"]
         assert len(tpl.tasks) >= 14
 
 
@@ -339,7 +339,7 @@ class TestListIssueTemplatesTool:
             {}, config, cast(JiraTempoClient, AsyncMock(spec=JiraTempoClient))
         )
         assert "Task templates (1):" in result
-        assert "standup-preparation" in result
+        assert "stand-preparation" in result
         assert "children=15" in result
 
     async def test_lists_user_override_too(self, tmp_path: Any) -> None:
@@ -350,7 +350,7 @@ class TestListIssueTemplatesTool:
         )
         assert "Task templates (2):" in result
         assert "demo-template" in result
-        assert "standup-preparation" in result
+        assert "stand-preparation" in result
 
 
 # --- create_issue_from_template handler (mock transport) ------------------------
@@ -419,8 +419,8 @@ class TestCreateIssueFromTemplateTool:
         assert "DEVOPS-103" in result
         assert "All children created successfully." in result
 
-    async def test_builtin_standup_creates_15_children(self) -> None:
-        """The built-in standup-preparation template: parent + 15 children."""
+    async def test_builtin_stand_creates_15_children(self) -> None:
+        """The built-in stand-preparation template: parent + 15 children."""
         config = _make_config()
         counter = {"n": 0}
 
@@ -435,7 +435,7 @@ class TestCreateIssueFromTemplateTool:
         try:
             result = await _handle_create_issue_from_template(
                 {
-                    "template": "standup-preparation",
+                    "template": "stand-preparation",
                     "project_key": "DEVOPS",
                     "summary": "Новый стенд ландшафта",
                 },
@@ -512,7 +512,7 @@ tasks:
         mock_client = AsyncMock(spec=JiraTempoClient)
         with pytest.raises(ValueError, match="summary"):
             await _handle_create_issue_from_template(
-                {"template": "standup-preparation", "project_key": "DEVOPS", "summary": "  "},
+                {"template": "stand-preparation", "project_key": "DEVOPS", "summary": "  "},
                 config,
                 cast(JiraTempoClient, mock_client),
             )
@@ -523,7 +523,7 @@ tasks:
         mock_client = AsyncMock(spec=JiraTempoClient)
         with pytest.raises(ValueError, match="project_key"):
             await _handle_create_issue_from_template(
-                {"template": "standup-preparation", "project_key": "", "summary": "S"},
+                {"template": "stand-preparation", "project_key": "", "summary": "S"},
                 config,
                 cast(JiraTempoClient, mock_client),
             )
@@ -563,7 +563,7 @@ tasks:
             with pytest.raises(JiraTempoError, match="did not return an issue key"):
                 await _handle_create_issue_from_template(
                     {
-                        "template": "standup-preparation",
+                        "template": "stand-preparation",
                         "project_key": "DEVOPS",
                         "summary": "S",
                     },
@@ -586,7 +586,7 @@ tasks:
             with pytest.raises(JiraTempoError, match="400"):
                 await _handle_create_issue_from_template(
                     {
-                        "template": "standup-preparation",
+                        "template": "stand-preparation",
                         "project_key": "DEVOPS",
                         "summary": "S",
                     },
