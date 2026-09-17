@@ -146,6 +146,12 @@ DEFAULT_NON_ISSUE_SECTIONS: list[str] = []
 # Default directory for custom report templates (expanded at load time).
 _DEFAULT_TEMPLATE_DIR = str(Path.home() / ".config" / "jira-tempo-mcp" / "templates")
 
+# Default directory for task-template overrides (expanded at load time).
+# Task templates (parent issue + child subtasks from YAML) are built into the
+# package; this directory holds user overrides/additions discovered on top.
+# Empty by default — when unset, only built-in templates are available.
+_DEFAULT_TASK_TEMPLATE_DIR = ""
+
 # Default base directory for report output when REPORT_OUTPUT_DIR env is not set.
 # Uses ~/.mcp/jira-tempo-mcp/reports so reports land in a stable, predictable
 # location regardless of the MCP server process CWD.
@@ -248,6 +254,14 @@ class Config(BaseModel):
     report_template_allow_py: bool = Field(
         default=False,
         description="Opt-in flag to load .py templates (code execution risk).",
+    )
+
+    # --- Task templates (parent issue + child subtasks from YAML) ---
+    task_template_dir: str = Field(
+        default="",
+        description="Directory scanned for task-template overrides (*.yaml). "
+        "User files with the same template name override built-ins. "
+        "Empty = built-in templates only.",
     )
 
     def __repr__(self) -> str:
@@ -452,6 +466,9 @@ def load_config() -> Config:
     report_template_dir = os.getenv("REPORT_TEMPLATE_DIR", "").strip()
     report_template_allow_py = _load_bool("REPORT_TEMPLATE_ALLOW_PY", False)
 
+    # Task templates (parent issue + child subtasks from YAML).
+    task_template_dir = os.getenv("JTM_TEMPLATES_DIR", "").strip()
+
     try:
         http_timeout = float(http_timeout_str)
     except ValueError:
@@ -482,4 +499,5 @@ def load_config() -> Config:
         report_template_path=report_template_path,
         report_template_dir=report_template_dir,
         report_template_allow_py=report_template_allow_py,
+        task_template_dir=task_template_dir,
     )
