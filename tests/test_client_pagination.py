@@ -12,12 +12,13 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
 import pytest
 
-from jira_tempo_mcp.client import JiraTempoClient
+from jira_tempo_mcp.client import JiraTempoClient, JiraTempoError
 from jira_tempo_mcp.config import Config
 
 
@@ -350,3 +351,190 @@ async def test_search_users_empty() -> None:
     finally:
         await client.aclose()
     assert result == []
+
+
+# --- create_issue: POST /rest/api/2/issue ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_issue_happy_path() -> None:
+    """POST payload carries project/summary/issuetype; response is normalized."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            201,
+            json={
+                "id": "10001",
+                "key": "DEVOPS-200",
+                "self": "https://jira.test.example/rest/api/2/issue/10001",
+            },
+        )
+
+    client = _client_with_transport(handler)
+    try:
+        result = await client.create_issue("devops", "Fix login flow")
+    finally:
+        await client.aclose()
+    assert seen["path"].endswith("/rest/api/2/issue")
+    fields = seen["payload"]["fields"]
+    assert fields["project"] == {"key": "DEVOPS"}  # uppercased
+    assert fields["summary"] == "Fix login flow"
+    assert fields["issuetype"] == {"name": "Task"}  # default
+    assert "parent" not in fields  # no parent_key -> no parent field
+    assert result == {
+        "key": "DEVOPS-200",
+        "id": "10001",
+        "self": "https://jira.test.example/rest/api/2/issue/10001",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_issue_with_parent_includes_parent_field() -> None:
+    """parent_key set -> 'parent': {'key': ...} present in the payload."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(201, json={"id": "10002", "key": "DEVOPS-201", "self": "u"})
+
+    client = _client_with_transport(handler)
+    try:
+        result = await client.create_issue(
+            "DEVOPS",
+            "Subtask: fix flaky test",
+            description="Stabilise the suite",
+            issuetype="Sub-task",
+            parent_key="devops-100",
+        )
+    finally:
+        await client.aclose()
+    fields = seen["payload"]["fields"]
+    assert fields["parent"] == {"key": "DEVOPS-100"}  # uppercased
+    assert fields["issuetype"] == {"name": "Sub-task"}
+    assert fields["description"] == "Stabilise the suite"
+    assert result["key"] == "DEVOPS-201"
+
+
+@pytest.mark.asyncio
+async def test_create_issue_empty_project_raises() -> None:
+    """Empty project_key is rejected client-side without an HTTP call."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(201, json={"id": "1", "key": "X-1", "self": "u"})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="project_key must be a non-empty"):
+            await client.create_issue("  ", "Some summary")
+    finally:
+        await client.aclose()
+    assert calls == []  # no HTTP request reached the transport
+
+
+@pytest.mark.asyncio
+async def test_create_issue_empty_summary_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"id": "1", "key": "X-1", "self": "u"})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="summary must be a non-empty"):
+            await client.create_issue("DEVOPS", "")
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_issue_empty_issuetype_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"id": "1", "key": "X-1", "self": "u"})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="issuetype must be a non-empty"):
+            await client.create_issue("DEVOPS", "S", issuetype=" ")
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_issue_api_error_propagates() -> None:
+    """HTTP 400 from Jira surfaces as JiraTempoError with the redacted body."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"errorMessages": ["issuetype not found"]})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="400"):
+            await client.create_issue("DEVOPS", "S", issuetype="NoSuchType")
+    finally:
+        await client.aclose()
+
+
+# --- add_issue_comment: POST /rest/api/2/issue/{key}/comment -----------------
+
+
+@pytest.mark.asyncio
+async def test_add_issue_comment_happy_path() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            201,
+            json={
+                "id": "10500",
+                "self": "https://jira.test.example/rest/api/2/issue/10001/comment/10500",
+                "body": "Investigation started.",
+            },
+        )
+
+    client = _client_with_transport(handler)
+    try:
+        result = await client.add_issue_comment("DEVOPS-100", "Investigation started.")
+    finally:
+        await client.aclose()
+    assert seen["path"].endswith("/rest/api/2/issue/DEVOPS-100/comment")
+    assert seen["payload"] == {"body": "Investigation started."}
+    assert result == {
+        "id": "10500",
+        "self": "https://jira.test.example/rest/api/2/issue/10001/comment/10500",
+        "body": "Investigation started.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_add_issue_comment_empty_rejected() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(201, json={"id": "1", "self": "u", "body": "x"})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="comment must be a non-empty"):
+            await client.add_issue_comment("DEVOPS-100", "   ")
+    finally:
+        await client.aclose()
+    assert calls == []  # no HTTP request reached the transport
+
+
+@pytest.mark.asyncio
+async def test_add_issue_comment_api_error_propagates() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"errorMessages": ["Issue does not exist"]})
+
+    client = _client_with_transport(handler)
+    try:
+        with pytest.raises(JiraTempoError, match="404"):
+            await client.add_issue_comment("DEVOPS-999", "hello")
+    finally:
+        await client.aclose()

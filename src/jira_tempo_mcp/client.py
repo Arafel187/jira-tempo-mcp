@@ -316,6 +316,84 @@ class JiraTempoClient:
             raise JiraTempoError(f"Unexpected response for issue {issue_key}")
         return data
 
+    async def create_issue(
+        self,
+        project_key: str,
+        summary: str,
+        description: str = "",
+        issuetype: str = "Task",
+        parent_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a Jira issue via POST /rest/api/2/issue.
+
+        project_key: target project (e.g. ``DEVOPS``).
+        summary: issue summary (non-empty).
+        description: optional issue description (Jira wiki markup or plain text).
+        issuetype: issue type name (e.g. ``Task``, ``Sub-task``). Defaults to
+            ``Task``.
+        parent_key: optional parent issue key (e.g. ``DEVOPS-100``). When set,
+            the ``parent`` field is included in the payload — Jira REST v2
+            documents ``"parent": {"key": "PROJ-123"}`` and this covers both
+            team-managed subtasks and company-managed epic/parent links.
+
+        Returns a normalized dict: ``key``, ``id``, ``self`` (the fields Jira
+        returns from the create endpoint).
+
+        Raises :class:`JiraTempoError` for empty project/summary/issuetype
+        (client-side validation) and on API errors.
+        """
+        if not isinstance(project_key, str) or not project_key.strip():
+            raise JiraTempoError("project_key must be a non-empty string.")
+        if not isinstance(summary, str) or not summary.strip():
+            raise JiraTempoError("summary must be a non-empty string.")
+        if not isinstance(issuetype, str) or not issuetype.strip():
+            raise JiraTempoError("issuetype must be a non-empty string.")
+
+        url = f"{self._config.jira_api_base}/issue"
+        fields: dict[str, Any] = {
+            "project": {"key": project_key.strip().upper()},
+            "summary": summary,
+            "issuetype": {"name": issuetype.strip()},
+        }
+        if description:
+            fields["description"] = description
+        if parent_key:
+            if not isinstance(parent_key, str) or not parent_key.strip():
+                raise JiraTempoError("parent_key must be a non-empty string when provided.")
+            fields["parent"] = {"key": parent_key.strip().upper()}
+        data = await self._request("POST", url, self._jira_headers(), json={"fields": fields})
+        if not isinstance(data, dict):
+            raise JiraTempoError("Unexpected response shape from issue creation")
+        return {
+            "key": data.get("key", ""),
+            "id": data.get("id", ""),
+            "self": data.get("self", ""),
+        }
+
+    async def add_issue_comment(self, issue_key: str, comment: str) -> dict[str, Any]:
+        """Add a comment to a Jira issue via POST /rest/api/2/issue/{key}/comment.
+
+        Returns a normalized dict: ``id`` (comment id), ``self`` (comment URL),
+        ``body`` (stored comment text).
+
+        Raises :class:`JiraTempoError` for an empty comment (client-side
+        validation) and on API errors.
+        """
+        if not isinstance(comment, str) or not comment.strip():
+            raise JiraTempoError("comment must be a non-empty string.")
+
+        url = f"{self._config.jira_api_base}/issue/{issue_key}/comment"
+        data = await self._request(
+            "POST", url, self._jira_headers(), json={"body": comment}
+        )
+        if not isinstance(data, dict):
+            raise JiraTempoError(f"Unexpected response shape for comment on {issue_key}")
+        return {
+            "id": data.get("id", ""),
+            "self": data.get("self", ""),
+            "body": data.get("body", ""),
+        }
+
     # --- Tempo worklogs ---
 
     async def search_worklogs(

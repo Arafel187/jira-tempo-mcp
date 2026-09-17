@@ -18,6 +18,8 @@ from jira_tempo_mcp.config import Config
 from jira_tempo_mcp.report import generate_weekly_report
 from jira_tempo_mcp.server import (
     _format_worklog_details,
+    _handle_add_issue_comment,
+    _handle_create_issue,
     _handle_create_worklog,
     _handle_get_current_user,
     _handle_get_issue,
@@ -779,3 +781,150 @@ class TestWeeklyReportBulletRendering:
         assert "\t+ деплой в кластер" in content
         # Time suffix appears once (on the last sub-item only).
         assert content.count("\u2014 4h") == 1
+
+
+# --- create_issue tool (slice 2a) -------------------------------------------
+
+
+class TestCreateIssueTool:
+    async def test_happy_path_returns_confirmation(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.create_issue.return_value = {
+            "key": "DEVOPS-200",
+            "id": "10001",
+            "self": "https://jira.test.example/rest/api/2/issue/10001",
+        }
+        result = await _handle_create_issue(
+            {"project_key": "DEVOPS", "summary": "Fix login flow"},
+            config,
+            cast(JiraTempoClient, mock_client),
+        )
+        assert "DEVOPS-200" in result
+        assert "Created Task" in result
+        assert "10001" in result
+        # Defaults forwarded: issuetype Task, no parent.
+        kwargs = mock_client.create_issue.await_args.kwargs
+        assert kwargs["issuetype"] == "Task"
+        assert kwargs["parent_key"] is None
+
+    async def test_parent_key_forwarded_and_validated(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.create_issue.return_value = {
+            "key": "DEVOPS-201",
+            "id": "10002",
+            "self": "u",
+        }
+        result = await _handle_create_issue(
+            {
+                "project_key": "DEVOPS",
+                "summary": "Subtask",
+                "issuetype": "Sub-task",
+                "parent_key": "DEVOPS-100",
+            },
+            config,
+            cast(JiraTempoClient, mock_client),
+        )
+        assert "parent DEVOPS-100" in result
+        kwargs = mock_client.create_issue.await_args.kwargs
+        assert kwargs["parent_key"] == "DEVOPS-100"
+        assert kwargs["issuetype"] == "Sub-task"
+
+    async def test_invalid_parent_key_rejected(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="Invalid issue key"):
+            await _handle_create_issue(
+                {"project_key": "DEVOPS", "summary": "S", "parent_key": "bad key!"},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+        mock_client.create_issue.assert_not_called()
+
+    async def test_empty_project_key_raises(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="project_key"):
+            await _handle_create_issue(
+                {"project_key": "", "summary": "S"},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+
+    async def test_empty_summary_raises(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="summary"):
+            await _handle_create_issue(
+                {"project_key": "DEVOPS", "summary": "  "},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+
+    async def test_empty_issuetype_raises(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="issuetype"):
+            await _handle_create_issue(
+                {"project_key": "DEVOPS", "summary": "S", "issuetype": ""},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+
+
+# --- add_issue_comment tool (slice 2a) ---------------------------------------
+
+
+class TestAddIssueCommentTool:
+    async def test_happy_path_returns_confirmation(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.add_issue_comment.return_value = {
+            "id": "10500",
+            "self": "u",
+            "body": "Investigation started.",
+        }
+        result = await _handle_add_issue_comment(
+            {"issue_key": "DEVOPS-100", "comment": "Investigation started."},
+            config,
+            cast(JiraTempoClient, mock_client),
+        )
+        assert "10500" in result
+        assert "DEVOPS-100" in result
+        mock_client.add_issue_comment.assert_awaited_once_with(
+            "DEVOPS-100", "Investigation started."
+        )
+
+    async def test_invalid_issue_key_rejected(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="Invalid issue key"):
+            await _handle_add_issue_comment(
+                {"issue_key": "nope", "comment": "hello"},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+        mock_client.add_issue_comment.assert_not_awaited()
+
+    async def test_empty_comment_raises(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="comment"):
+            await _handle_add_issue_comment(
+                {"issue_key": "DEVOPS-100", "comment": "   "},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+        mock_client.add_issue_comment.assert_not_awaited()
+
+    async def test_missing_comment_raises(self) -> None:
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        with pytest.raises(ValueError, match="comment"):
+            await _handle_add_issue_comment(
+                {"issue_key": "DEVOPS-100"},
+                config,
+                cast(JiraTempoClient, mock_client),
+            )
+        mock_client.add_issue_comment.assert_not_awaited()

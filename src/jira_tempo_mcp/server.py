@@ -145,6 +145,67 @@ TOOLS: list[Tool] = [
         },
     ),
     Tool(
+        name="create_issue",
+        description=(
+            "Create a new Jira issue in a project. "
+            "Provide project key, summary, and optionally a description, "
+            "issue type (default 'Task'), and a parent issue key for subtasks. "
+            "Use when you need to create issues or subtasks from an agent. "
+            "For time tracking on the new issue, follow up with create_worklog."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_key": {
+                    "type": "string",
+                    "description": "Target project key (e.g. 'DEVOPS').",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Issue summary (title). Non-empty.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional issue description.",
+                },
+                "issuetype": {
+                    "type": "string",
+                    "description": "Issue type name (e.g. 'Task', 'Sub-task'). Defaults to 'Task'.",
+                },
+                "parent_key": {
+                    "type": "string",
+                    "description": (
+                        "Optional parent issue key (e.g. 'DEVOPS-100') for subtasks "
+                        "or epic links."
+                    ),
+                },
+            },
+            "required": ["project_key", "summary"],
+        },
+    ),
+    Tool(
+        name="add_issue_comment",
+        description=(
+            "Add a comment to an existing Jira issue. "
+            "Use when you need to post progress notes, questions, or findings "
+            "to an issue. Comment text is required and must be non-empty."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_key": {
+                    "type": "string",
+                    "description": "Jira issue key (e.g. 'DEVOPS-100').",
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Comment text. Non-empty.",
+                },
+            },
+            "required": ["issue_key", "comment"],
+        },
+    ),
+    Tool(
         name="list_favorite_issues",
         description="List favorite issues for the current Jira user. Returns keys and summaries.",
         inputSchema={"type": "object", "properties": {}, "required": []},
@@ -812,6 +873,51 @@ async def _handle_get_issue(
     return "\n".join(lines)
 
 
+async def _handle_create_issue(
+    arguments: dict[str, Any], config: Config, client: JiraTempoClient
+) -> str:
+    project_key = arguments.get("project_key")
+    if not isinstance(project_key, str) or not project_key.strip():
+        raise ValueError("'project_key' must be a non-empty string.")
+    summary = arguments.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("'summary' must be a non-empty string.")
+    description = arguments.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError("'description' must be a string.")
+    issuetype = arguments.get("issuetype", "Task")
+    if not isinstance(issuetype, str) or not issuetype.strip():
+        raise ValueError("'issuetype' must be a non-empty string.")
+    parent_key = arguments.get("parent_key")
+    if parent_key is not None:
+        parent_key = _validate_issue_key(parent_key)
+
+    result = await client.create_issue(
+        project_key,
+        summary,
+        description=description,
+        issuetype=issuetype,
+        parent_key=parent_key,
+    )
+    parent_note = f" (parent {parent_key})" if parent_key else ""
+    return (
+        f"Created {issuetype} {result.get('key', '?')} in {project_key.strip()}{parent_note}.\n"
+        f"Issue ID: {result.get('id', '?')}"
+    )
+
+
+async def _handle_add_issue_comment(
+    arguments: dict[str, Any], config: Config, client: JiraTempoClient
+) -> str:
+    key = _validate_issue_key(arguments["issue_key"])
+    comment = arguments.get("comment")
+    if not isinstance(comment, str) or not comment.strip():
+        raise ValueError("'comment' must be a non-empty string.")
+
+    result = await client.add_issue_comment(key, comment)
+    return f"Added comment {result.get('id', '?')} to {key}."
+
+
 async def _handle_list_favorites(
     arguments: dict[str, Any], config: Config, client: JiraTempoClient
 ) -> str:
@@ -1217,6 +1323,8 @@ _TOOL_HANDLERS: dict[str, Any] = {
     "create_worklog": _handle_create_worklog,
     "delete_worklog": _handle_delete_worklog,
     "get_issue": _handle_get_issue,
+    "create_issue": _handle_create_issue,
+    "add_issue_comment": _handle_add_issue_comment,
     "list_favorite_issues": _handle_list_favorites,
     "generate_weekly_report": _handle_generate_report,
     "generate_team_report": _handle_generate_team_report,
