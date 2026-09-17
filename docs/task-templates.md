@@ -21,7 +21,6 @@ title: "{{ summary }}"           # parent summary, jinja2-rendered
 description: >-                  # parent description, jinja2-rendered;
   Подготовка стенда к стендапу.{%- if user_description %} Контекст:  # empty -> duplicates the rendered title
   {{ user_description }}.{% endif %}
-project_key: null                # default project key; may be overridden at call time
 parent_issuetype: Task           # parent issue type (default Task)
 child_issuetype: Sub-task        # child issue type (default Sub-task)
 tasks:                           # ordered child subtasks (at least one)
@@ -39,8 +38,12 @@ tasks:                           # ordered child subtasks (at least one)
 | `title` | Required, non-empty |
 | `tasks` | Required, at least one child; each child requires a non-empty `summary` |
 | `tag` | Optional, single line (no newlines) |
-| `project_key` | Optional; when set, must be an uppercase alphanumeric project key |
 | `parent_issuetype` / `child_issuetype` | Optional; default `Task` / `Sub-task` |
+
+A legacy `project_key` field in a template file is **ignored** — the field
+was removed from the schema because the target project is always provided
+at call time (the `project_key` argument of `create_issue_from_template`).
+Existing template files containing it keep loading.
 
 ---
 

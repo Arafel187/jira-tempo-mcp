@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 19 tests (mock-transport client tests + handler-level tests) covering happy paths, the parent-field payload, validation errors, and API-error propagation.
 - Docs: both tools added to `docs/api.md` / `docs/api.ru.md` (tool index + full contracts), tool-count references updated 15 → 17 in `architecture.md` / `architecture.ru.md`, and both README feature tables extended.
 
+### Fixed
+
+- `create_issue_from_template` no longer creates silently orphaned children when Jira's parent-create response lacks an issue `key` — the call aborts as a parent failure before any child is attempted (previously children were created unlinked with the `parent` field omitted while the report printed `Created parent ?`).
+- Removed the dead `project_key` field from the task-template schema and docs (EN+RU) — it was documented as "default project key; may be overridden at call time" but never read by the handler; the target project is always provided at call time. Legacy template files containing `project_key` keep loading (pydantic ignores the unknown field).
+- `JTM_TEMPLATES_DIR` now expands a leading `~` (matches the documented example) — previously a tilde path was taken literally and the override directory was silently missing in `.env` / systemd / docker contexts.
+
 ## [0.4.3] — 2026-08-08
 
 ### Fixed

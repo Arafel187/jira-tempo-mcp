@@ -4,7 +4,6 @@ description: >-
   Подготовка стенда к стендапу.{%- if user_description %} Контекст:
   {{ user_description }}.{% endif %} Создано из шаблона standup-preparation
   {{ today }}.
-project_key: null
 parent_issuetype: Task
 child_issuetype: Sub-task
 tasks:

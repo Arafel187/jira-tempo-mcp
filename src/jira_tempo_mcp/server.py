@@ -1044,8 +1044,17 @@ async def _handle_create_issue_from_template(
         description=parent_description,
         issuetype=template.parent_issuetype,
     )
+    # A parent response without an issue key counts as a parent failure:
+    # without a key there is nothing to link children to — creating them
+    # would silently orphan the whole subtree, so no child is attempted.
     parent_key = str(parent.get("key", ""))
-    lines = [f"Created parent {template.parent_issuetype} {parent_key or '?'}."]
+    if not parent_key:
+        raise JiraTempoError(
+            "Jira did not return an issue key for the created parent "
+            f"({template.parent_issuetype} {parent_summary!r}) — aborting; "
+            "no children were created."
+        )
+    lines = [f"Created parent {template.parent_issuetype} {parent_key}."]
 
     # Children are created sequentially in template order. On the first
     # failure: stop, report what was created so far — no rollback, no retry.
@@ -1058,7 +1067,7 @@ async def _handle_create_issue_from_template(
                 child_summary,
                 description=child_description,
                 issuetype=template.child_issuetype,
-                parent_key=parent_key or None,
+                parent_key=parent_key,
             )
             child_key = str(child.get("key", ""))
             created.append(child_key or "?")

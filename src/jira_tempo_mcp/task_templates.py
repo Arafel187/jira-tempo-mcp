@@ -102,10 +102,6 @@ class TaskTemplate(BaseModel):
         description="Optional parent issue description; jinja2-rendered. "
         "When empty, the rendered title is duplicated as the description.",
     )
-    project_key: str | None = Field(
-        default=None,
-        description="Default project key; may be overridden at call time.",
-    )
     parent_issuetype: str = Field(
         default="Task",
         min_length=1,
@@ -125,20 +121,6 @@ class TaskTemplate(BaseModel):
     @classmethod
     def _strip_strings(cls, v: str) -> str:
         return v.strip()
-
-    @field_validator("project_key")
-    @classmethod
-    def _validate_project_key(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        stripped = v.strip()
-        if not stripped:
-            return None
-        if not stripped.isupper() or not stripped.isalnum():
-            raise ValueError(
-                f"project_key must be an uppercase alphanumeric Jira project key, got {v!r}"
-            )
-        return stripped
 
     @field_validator("tasks")
     @classmethod
@@ -281,10 +263,13 @@ def discover_task_template_overrides(config_dir: str) -> dict[str, TaskTemplate]
     inside the same directory overwrite each other (last alphabetical wins);
     schema errors are logged and skipped — a bad user file must not take down
     the whole registry. An empty/missing ``config_dir`` yields an empty dict.
+    A leading ``~`` is expanded (``Path.expanduser``) so an env value like
+    ``~/.mcp/jira-tempo-mcp/task-templates`` resolves in .env / systemd /
+    docker contexts where no shell expands it.
     """
     if not config_dir:
         return {}
-    directory = Path(config_dir)
+    directory = Path(config_dir).expanduser()
     if not directory.is_dir():
         logger.warning("Task template dir %s does not exist — no overrides", directory)
         return {}

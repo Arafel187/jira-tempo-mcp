@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -104,29 +105,23 @@ class TestTaskTemplateSchema:
                 source="<test>",
             )
 
-    def test_invalid_project_key_rejected(self) -> None:
-        with pytest.raises(ValueError, match="project_key"):
-            parse_task_template(
-                {
-                    "name": "demo",
-                    "title": "t",
-                    "project_key": "not valid!",
-                    "tasks": [{"summary": "s"}],
-                },
-                source="<test>",
-            )
+    def test_legacy_project_key_field_tolerated(self) -> None:
+        """A legacy `project_key` in a template file is ignored, not an error.
 
-    def test_empty_project_key_normalizes_to_none(self) -> None:
+        The field was removed from the schema (never read by the handler);
+        existing template files that still carry it must keep loading.
+        """
         tpl = parse_task_template(
             {
                 "name": "demo",
                 "title": "t",
-                "project_key": "  ",
+                "project_key": "DEVOPS",
                 "tasks": [{"summary": "s"}],
             },
             source="<test>",
         )
-        assert tpl.project_key is None
+        assert tpl.name == "demo"
+        assert len(tpl.tasks) == 1
 
     def test_tag_with_newline_rejected(self) -> None:
         with pytest.raises(ValueError, match="tag"):
@@ -279,6 +274,23 @@ class TestTaskTemplateRegistry:
 
     def test_overrides_empty_config_yields_nothing(self) -> None:
         assert discover_task_template_overrides("") == {}
+
+    def test_overrides_tilde_in_config_dir_expanded(self, tmp_path: Any) -> None:
+        """A leading `~` in the override dir is expanded to $HOME."""
+        home = os.environ["HOME"]
+        try:
+            os.environ["HOME"] = str(tmp_path)
+            (tmp_path / ".config" / "task-templates").mkdir(parents=True)
+            (tmp_path / ".config" / "task-templates" / "homed.yaml").write_text(
+                _VALID_TEMPLATE_YAML, encoding="utf-8"
+            )
+            found = discover_task_template_overrides("~/.config/task-templates")
+        finally:
+            os.environ["HOME"] = home
+        # The tilde path resolved under the temp $HOME and the file was found
+        # there — proves expanduser() ran (a literal `~/.config/...` relative
+        # path would not exist on disk).
+        assert "demo-template" in found
 
     def test_user_file_adds_template(self, tmp_path: Any) -> None:
         (tmp_path / "extra.yaml").write_text(_VALID_TEMPLATE_YAML, encoding="utf-8")
@@ -527,6 +539,41 @@ tasks:
                 cast(JiraTempoClient, mock_client),
             )
         mock_client.create_issue.assert_not_called()
+
+    async def test_parent_payload_without_key_aborts_no_orphans(self) -> None:
+        """Parent response missing `key` -> abort before any child is created.
+
+        Regression for the silent-orphan bug: without this check the handler
+        created all children unlinked (parent field omitted) and reported
+        "Created parent ?". Now the parent step counts as a failure and the
+        call aborts per the stop-on-first-failure contract.
+        """
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json as _json
+
+            fields = _json.loads(request.content.decode("utf-8"))["fields"]
+            calls.append(fields["summary"])
+            # Parent create succeeds but returns no `key` (defect case).
+            return httpx.Response(201, json={"id": "1", "self": "u"})
+
+        client = _client_with_transport(handler)
+        try:
+            with pytest.raises(JiraTempoError, match="did not return an issue key"):
+                await _handle_create_issue_from_template(
+                    {
+                        "template": "standup-preparation",
+                        "project_key": "DEVOPS",
+                        "summary": "S",
+                    },
+                    _make_config(),
+                    client,
+                )
+        finally:
+            await client.aclose()
+        # Exactly one HTTP call: the parent. No children were attempted.
+        assert len(calls) == 1
 
     async def test_parent_failure_aborts_whole_call(self) -> None:
         """A parent-creation failure aborts before any child is attempted."""
