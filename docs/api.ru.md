@@ -1,6 +1,6 @@
 # 🌐 API — MCP-инструменты
 
-Сервер открывает 17 инструментов через Model Context Protocol. Каждый
+Сервер открывает 19 инструментов через Model Context Protocol. Каждый
 инструмент определён в `src/jira_tempo_mcp/server.py` и диспетчеризуется
 через таблицу (`_TOOL_HANDLERS`).
 
@@ -17,6 +17,8 @@
 | [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (9 полей, включая описание) |
 | [`create_issue`](#-create_issue) | Задачи | Создать новую задачу в проекте (в том числе подзадачу) |
 | [`add_issue_comment`](#-add_issue_comment) | Задачи | Добавить комментарий к существующей задаче |
+| [`list_issue_templates`](#-list_issue_templates) | Задачи | Показать доступные шаблоны задач (встроенные + пользовательские) |
+| [`create_issue_from_template`](#-create_issue_from_template) | Задачи | Создать родительскую задачу и дочерние подзадачи из шаблона задач |
 | [`list_favorite_issues`](#-list_favorite_issues) | Задачи | Список избранных задач текущего пользователя |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Задачи | Поиск задач через JQL-запрос |
 | [`get_current_user`](#-get_current_user) | Пользователи | Данные аутентифицированного пользователя |
@@ -285,6 +287,93 @@ Issue ID: 10002
 
 ```text
 Added comment 10500 to DEVOPS-100.
+```
+
+---
+
+## 🧩 `list_issue_templates`
+
+Показать доступные шаблоны задач (встроенные + пользовательские из
+`JTM_TEMPLATES_DIR`). Каждая запись содержит имя шаблона, шаблон заголовка
+родителя, количество дочерних задач и типы родительских/дочерних задач.
+
+**Параметры:** нет.
+
+**Пример вызова:**
+
+```json
+{
+  "name": "list_issue_templates",
+  "arguments": {}
+}
+```
+
+**Возвращает:**
+
+```text
+Task templates (1):
+- standup-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
+```
+
+Формат файла шаблона — в [task-templates.ru.md](task-templates.ru.md).
+
+---
+
+## 🧩 `create_issue_from_template`
+
+Создать родительскую задачу Jira и её дочерние подзадачи из шаблона задач.
+Родитель создаётся первым; дочерние создаются **последовательно** в порядке
+из шаблона, каждая связана с родителем. При первой ошибке дочерней задачи
+создание **останавливается**, и отчёт перечисляет созданное на текущий
+момент — ранее созданные задачи НЕ откатываются. Ошибка родителя прерывает
+весь вызов до первой дочерней задачи.
+
+Заголовки, описания и теги рендерятся через jinja2 с аргументами вызова
+(подробнее — [task-templates.ru.md](task-templates.ru.md)).
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `template` | string | да | Имя шаблона задач (напр. `standup-preparation`). |
+| `project_key` | string | да | Ключ целевого проекта (напр. `DEVOPS`). |
+| `summary` | string | да | Описание задачи от вызывающего — рендерится в заголовок родителя (`{{ summary }}`) и доступно описаниям дочерних задач. |
+| `description` | string | нет | Необязательный дополнительный контекст — доступен описаниям шаблона как `{{ user_description }}`. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "create_issue_from_template",
+  "arguments": {
+    "template": "standup-preparation",
+    "project_key": "DEVOPS",
+    "summary": "Новый стенд ландшафта",
+    "description": "пилотный стенд"
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Created parent Task DEVOPS-200.
+Created children (15/15):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  ...
+All children created successfully.
+```
+
+При ошибке дочерней задачи:
+
+```text
+Created parent Task DEVOPS-200.
+Created children (2/15):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  x Прогнать smoke-тесты на стенде (failed: Jira/Tempo API error: API error 400 from ...)
+Creation stopped at the first failure — earlier children were created and are NOT rolled back.
 ```
 
 ---

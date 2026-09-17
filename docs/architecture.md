@@ -9,7 +9,7 @@ flow in one direction.
 
 ```mermaid
 flowchart TD
-    S[server.py<br/>MCP server + 17 tools + input validation] --> C[client.py<br/>Jira + Tempo HTTP client]
+    S[server.py<br/>MCP server + 19 tools + input validation] --> C[client.py<br/>Jira + Tempo HTTP client]
     S --> R[report.py<br/>Weekly report generator]
     S --> TR[team_report.py<br/>Team report + rate-limiting]
     S --> T[templates/<br/>Report template system]
