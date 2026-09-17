@@ -2,7 +2,7 @@
 
 ## What this is
 
-This file is the universal agent knowledge for the `jira-tempo` MCP server. Any AI agent reading it learns how to produce Jira/Tempo worklog reports predictably by calling the matching MCP generator. It is IDE-agnostic and works with VS Code Copilot Chat, Cursor, Claude Code, Continue, Aider, and any MCP-capable client. The MCP server is registered under the name `jira-tempo` (the repository is `jira-tempo-mcp`, but the server id is `jira-tempo`). All report generation goes through `jira-tempo` MCP tools — never direct REST/CLI to Jira or Tempo.
+This file is the universal agent knowledge for the `jira-tempo` MCP server. Any AI agent reading it learns how to produce Jira/Tempo worklog reports predictably by calling the matching MCP generator, log time with a brief summary comment, and create or decompose issues from task templates. It is IDE-agnostic and works with VS Code Copilot Chat, Cursor, Claude Code, Continue, Aider, and any MCP-capable client. The MCP server is registered under the name `jira-tempo` (the repository is `jira-tempo-mcp`, but the server id is `jira-tempo`). All report generation goes through `jira-tempo` MCP tools — never direct REST/CLI to Jira or Tempo.
 
 ## Report types — the seven-type matrix
 
@@ -37,6 +37,34 @@ Pick the report type from user intent. The table is the decision matrix; the MCP
 | `team_report` | Collective report for multiple users in one file. |
 
 Discover available templates at runtime: call `list_report_templates`. Custom templates from `REPORT_TEMPLATE_DIR` also appear there.
+
+## Tool inventory
+
+The MCP server exposes **19 tools**. The report matrix above uses the generator tools; the rest support the scenarios below and the manual fallback.
+
+| Group | Tools | Used by |
+|---|---|---|
+| Report generators | `generate_weekly_report`, `generate_team_report`, `generate_tasks_report` | Scenarios 1–3 |
+| Report templates | `list_report_templates`, `preview_report_template` | Custom templates (type 7) |
+| Worklog reads | `list_worklogs`, `get_worklog` | Scenario 4 (manual fallback) |
+| Worklog writes | `create_worklog`, `delete_worklog` | Scenario 5 (`create_worklog` only; `delete_worklog` stays out of scope) |
+| Issue reads | `get_issue`, `list_issues_by_jql`, `list_favorite_issues` | Scenario 4. `get_issue` always returns `description`; `list_issues_by_jql` appends it only with `include_description=true` (opt-in, default `false`) |
+| Issue writes | `create_issue`, `add_issue_comment`, `list_issue_templates`, `create_issue_from_template` | Scenario 6 |
+| Users / helpers | `search_users`, `list_user_tasks`, `get_current_user` | Defaults and enrichment |
+
+Tool-level contracts (parameters, payloads, return shapes) live in `docs/api.md`; the task-template file format in `docs/task-templates.md`.
+
+## Worklog comment style
+
+When logging time (scenario 5), the worklog `comment` is a brief summary of the work done — the same register as the project's reports, not a session log. The contract:
+
+- **≤5 bullets.** One line per bullet; drop anything the reader would skip.
+- **Verb-led.** Every bullet starts with a verb («провёл», «исправил», «проверил»). No telegram-style fragments.
+- **Plain professional language.** No jargon, no session shorthand, no internal codenames. Expand a non-universal abbreviation on first use.
+- **No secrets.** Never include tokens, credentials, or URLs with embedded auth.
+- **User's language.** Match the language the user works in.
+
+The agent composes the comment from the work actually done; it never pastes raw conversation or tool output into the comment.
 
 ## Work scenarios
 
@@ -77,12 +105,54 @@ The user asks for something no generator produces in one call: an arbitrary JQL 
 When falling back:
 
 1. Call `list_worklogs(date_from, date_to)` for raw worklogs.
-2. Call `get_issue(issue_key)` for each unique issue to enrich metadata.
-3. If a JQL filter is needed, call `list_issues_by_jql(jql, max_results)`.
-4. The agent MAY also use these read-only tools to enrich the report: `get_worklog` (single worklog detail), `list_favorite_issues` (user's favorite issues), `list_user_tasks` (assigned tasks for a user), `search_users` (find user accounts by query). Write operations (`create_worklog`, `delete_worklog`) are out of scope — this agent is read-only on Jira.
+2. Call `get_issue(issue_key)` for each unique issue to enrich metadata. `get_issue` always returns `description` (9 fields).
+3. If a JQL filter is needed, call `list_issues_by_jql(jql, max_results)`. Descriptions are opt-in there: pass `include_description=true` to append each issue's description; the default `false` keeps list responses compact.
+4. The agent MAY also use these read-only tools to enrich the report: `get_worklog` (single worklog detail), `list_favorite_issues` (user's favorite issues), `list_user_tasks` (assigned tasks for a user), `search_users` (find user accounts by query). Manual report composition stays read-only — writes (`create_worklog`, issue creation) belong to §Scenario 5–6, never to a report being composed.
 5. Compose the report manually, preserving the structure of the closest built-in template.
 6. Save the file to the same `REPORT_OUTPUT_DIR` the generators use, or the user-specified path.
 7. **State explicitly in the response** that manual composition was used, and why no generator fit.
+
+### Scenario 5 — Time tracking with a summary comment
+
+User: «затрекай 3 часа на ABC-123, работал с агентами над ревью чарта».
+
+1. Parse the request: issue key (`ABC-123`), duration (`time_spent` — accept «3 часа», `3h`, `2h 30m`, `45m`; convert to Tempo units: `w`=5d, `d`=8h, `h`, `m`), optional date (`date_started`, default today; «за вчера» → yesterday's date).
+2. Compose the `comment` per §Worklog comment style — a brief bullet summary of the work actually done, in the user's language.
+3. Call `create_worklog(issue_key, time_spent, comment)`.
+4. Report the confirmation (issue, duration, worklog id). On `VALIDATION_FAILED` the installation requires Tempo `attributes` — ask the user for the attribute values instead of guessing.
+
+Worked example:
+
+```text
+User: «затрекай 3 часа на ABC-123, работал с агентами над ревью чарта»
+
+Parse: issue_key=ABC-123, time_spent="3h", date_started=<today>.
+Comment (per §Worklog comment style):
+  - Провёл ревью Helm-чарта вместе с агентами
+  - Исправил замечания по структуре шаблонов
+  - Проверил рендер чарта после правок
+
+create_worklog:
+  {"name": "create_worklog",
+   "arguments": {"issue_key": "ABC-123", "time_spent": "3h",
+                 "comment": "- Провёл ревью Helm-чарта вместе с агентами\n- Исправил замечания по структуре шаблонов\n- Проверил рендер чарта после правок"}}
+
+→ "Tracked 3h on ABC-123 at 2026-09-17. Worklog ID: 12345."
+Reply: «Затрекал 3h на ABC-123 (worklog 12345)».
+```
+
+### Scenario 6 — Task creation + decomposition
+
+The user describes a task in free form («подготовь новый стенд для пилота») and expects a Jira issue — with subtasks when a template covers the task shape.
+
+1. Parse a summary (the short task title) and optional extra context (becomes `description`). Ask one clarifying question if `project_key` is unknown — there is no safe default.
+2. Call `list_issue_templates()` → available templates (name, title pattern, child count, issue types).
+3. **Does a template fit the task shape?**
+   - **Yes** → `create_issue_from_template(template, project_key, summary, description?)`. Report the parent key and the created children in template order.
+   - **No** → fall back to `create_issue(project_key, summary, description?, issuetype?)` — parent only.
+4. **Fallback notice (mandatory):** state explicitly that no template fit and the issue was created without subtasks. Do NOT invent ad-hoc subtask structures.
+5. Propose the extension path: save a new YAML template to `JTM_TEMPLATES_DIR` (file format: `docs/task-templates.md`) so the next task of this shape gets a proper decomposition. The agent does not author template files itself.
+6. **Non-idempotency warning (mandatory):** template creation is not idempotent — re-running the same call creates a duplicate parent and duplicate children. Never rerun to "fix" a partial result; on a child failure the tool reports created-so-far with no rollback — relay that state and let the user decide on cleanup.
 
 ## Clarifying questions
 
@@ -92,6 +162,7 @@ When the user request is ambiguous, ask at most 2 questions, each with a recomme
 |------|----------|---------|
 | **Type + format** | "Which type (basic, summary, formatted, structured, team, by-tasks, custom) and format (txt, md, json)?" | `basic` + `txt` — the canonical weekly format. `summary` if the user said "short" / "for management" / "top-5". |
 | **Period + users** | "Which period and which user(s)?" | Period: current work week Mon–Sun. Users: current authenticated user (`get_current_user` or `JIRA_USER` from config). |
+| **Task creation (§Scenario 6)** | "Which project (`project_key`)?" | No safe default — ask when not stated. The template match (§Scenario 6 step 3) resolves the rest. |
 
 Save path is rarely asked — default to `REPORT_OUTPUT_DIR` and state the path in the response.
 
@@ -119,7 +190,7 @@ The agent does NOT author template files. If the user wants a custom template th
 ## Hard rules
 
 - **Only `jira-tempo` MCP tools.** Never direct REST/CLI to Jira or Tempo. If the MCP server is unavailable, say so and point to installation — do not attempt raw HTTP.
-- **No Jira write operations.** The server is read-only: worklogs and issue metadata. Never create or update issues or worklogs.
+- **Writes are scoped.** Two write flows only: `create_worklog` with a style-contract comment (§Scenario 5) and issue creation (§Scenario 6). Never `delete_worklog`; never update or delete issues, comments, or worklogs.
 - **No secrets in output.** Never echo `JIRA_API_TOKEN`, `JIRA_PAT`, or `TEMPO_API_TOKEN`. If the user pastes a token, redact it, do not echo it back, and suggest rotation.
 - **State the saved file's absolute path** in every report response. The user must never have to guess where the file went.
 - **Fallback to manual composition is explicit.** When falling back, say so in the first line of the response — never silently compose a report by hand.
@@ -131,3 +202,6 @@ The agent does NOT author template files. If the user wants a custom template th
 - **Silently choosing the wrong type for the audience.** Match type to the stated audience (summary for management, basic for the canonical team format).
 - **Hardcoding usernames.** Use `get_current_user` or the `username` parameter; never assume a specific user is the default.
 - **Creating directories manually** to satisfy a custom save layout. Save to `REPORT_OUTPUT_DIR` and report the actual path instead.
+- **Inventing ad-hoc subtask structures** when no issue template fits (§Scenario 6). Fall back to a parent-only `create_issue` with the explicit notice, and propose saving a template instead.
+- **Verbose worklog comments** — a session log with 10+ lines violates the ≤5-bullet contract (§Worklog comment style).
+- **Rerunning template creation** after a partial failure — duplicates the task tree. Report created-so-far; the user decides on cleanup.

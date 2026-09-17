@@ -1,6 +1,6 @@
 ---
 name: jira-tempo-reports
-description: (JTM) Domain skill for the JTM: Jira Tempo Reports agent — VS Code picker flow and VS Code-specific behavior. The universal 7-type report matrix and work scenarios live in JTM_AGENT.md in `copilot-integration/` (same directory as this skill file).
+description: (JTM) Domain skill for the JTM: Jira Tempo Reports agent — VS Code picker flow and VS Code-specific behavior. The universal report matrix, work scenarios (including time tracking with a summary comment and task creation + decomposition), and the worklog-comment style contract live in JTM_AGENT.md in `copilot-integration/` (same directory as this skill file).
 user-invocable: false
 ---
 
@@ -10,9 +10,11 @@ This skill is the VS Code-specific companion to `JTM_AGENT.md` (in
 `copilot-integration/` next to this skill file, or installed alongside
 the agent in `~/.copilot/skills/jira-tempo-reports/`). It covers ONLY the
 interactive picker flow (`vscode_askQuestions`) and the VS Code
-behavior nuances — the report knowledge itself (7-type matrix,
-parameter semantics, work scenarios, fallback rules, save-path
-conventions) lives in `JTM_AGENT.md`. **Do not duplicate that
+behavior nuances — the report knowledge itself (report matrix,
+parameter semantics, work scenarios — including the two write
+scenarios, time tracking with a summary comment and task creation
++ decomposition —, the worklog-comment style contract, and fallback
+rules) lives in `JTM_AGENT.md`. **Do not duplicate that
 content here.**
 
 ## When to apply
@@ -21,7 +23,10 @@ content here.**
   Copilot Chat (picker UI available) and receives a report request.
 - VS Code UI tools (`vscode_askQuestions`) are available.
 - A clarification is needed on type / format / period / user before
-  calling a `jira-tempo` MCP generator.
+  calling a `jira-tempo` MCP generator (report requests), or on the
+  project key for task creation (§Scenario 6 of `JTM_AGENT.md`).
+- A confirmation is needed before `create_issue_from_template` runs
+  (it is not idempotent — a rerun duplicates the task tree).
 
 ## When NOT to apply
 
@@ -31,8 +36,10 @@ content here.**
   recommended defaults).
 - The user already specified type + format + period + user in their
   first message — skip the picker and run the generator directly.
-- The request is a Jira write, analytics beyond raw aggregation, or
-  non-Jira data — see `JTM_AGENT.md` §When NOT to apply.
+- The request is a Jira operation outside this agent's scope
+  (`delete_worklog`, issue/comment/worklog updates, template file
+  authoring), analytics beyond raw aggregation, or non-Jira data —
+  see `JTM_AGENT.md` §Hard rules.
 
 ## Interactive picker flow
 
@@ -89,8 +96,9 @@ accept silently.
 
 ## Hard rules
 
-The hard rules (only `jira-tempo` MCP tools; no Jira writes; no
-secrets; state the file path; fallback explicit; match type to
+The hard rules (only `jira-tempo` MCP tools; writes scoped to
+`create_worklog` with a style-contract comment and issue creation;
+no secrets; state the file path; fallback explicit; match type to
 audience) live in `JTM_AGENT.md` §Hard rules and in the
 `JTM: Jira Tempo Reports` agent body. This skill does not re-state
 them — apply both sources, with `JTM_AGENT.md` as the authority for
