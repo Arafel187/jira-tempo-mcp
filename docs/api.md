@@ -1,6 +1,6 @@
 # 🌐 API — MCP tools
 
-The server exposes 15 tools over the Model Context Protocol. Each tool is
+The server exposes 19 tools over the Model Context Protocol. Each tool is
 defined in `src/jira_tempo_mcp/server.py` and dispatched through a table
 (`_TOOL_HANDLERS`).
 
@@ -14,7 +14,11 @@ defined in `src/jira_tempo_mcp/server.py` and dispatched through a table
 | [`get_worklog`](#-get_worklog) | Worklogs | Get a single worklog by Tempo ID |
 | [`create_worklog`](#-create_worklog) | Worklogs | Track time on a Jira issue |
 | [`delete_worklog`](#-delete_worklog) | Worklogs | Delete a worklog by ID |
-| [`get_issue`](#-get_issue) | Issues | Get Jira issue metadata (8 fields) |
+| [`get_issue`](#-get_issue) | Issues | Get Jira issue metadata (9 fields, incl. description) |
+| [`create_issue`](#-create_issue) | Issues | Create a new issue in a project (optionally a subtask) |
+| [`add_issue_comment`](#-add_issue_comment) | Issues | Add a comment to an existing issue |
+| [`list_issue_templates`](#-list_issue_templates) | Issues | List available task templates (builtin + user overrides) |
+| [`create_issue_from_template`](#-create_issue_from_template) | Issues | Create a parent issue plus child subtasks from a task template |
 | [`list_favorite_issues`](#-list_favorite_issues) | Issues | List favorite issues for the current user |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Issues | Search issues by JQL query |
 | [`get_current_user`](#-get_current_user) | Users | Get authenticated user info |
@@ -175,8 +179,8 @@ Deleted worklog 12345.
 
 ## 📋 `get_issue`
 
-Get Jira issue metadata: summary, status, project, priority, assignee, due
-date, issue type, and components (8 fields).
+Get Jira issue metadata: summary, description, status, project, priority,
+assignee, due date, issue type, and components (9 fields).
 
 **Parameters:**
 
@@ -204,6 +208,172 @@ Assignee: Ivan Golikhin
 Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
+Description: Login fails for LDAP users after session timeout.
+```
+
+---
+
+## 🆕 `create_issue`
+
+Create a new Jira issue in a project. Optionally set an issue type and a
+parent issue key (for subtasks or epic links). Maps to
+`POST /rest/api/2/issue`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_key` | string | yes | Target project key (e.g. `DEVOPS`). |
+| `summary` | string | yes | Issue summary (title). Non-empty. |
+| `description` | string | no | Issue description. Defaults to empty. |
+| `issuetype` | string | no | Issue type name (e.g. `Task`, `Sub-task`). Defaults to `Task`. |
+| `parent_key` | string | no | Parent issue key (e.g. `DEVOPS-100`) for subtasks or epic links. When set, the `parent` field is included in the create payload. |
+
+**Example call:**
+
+```json
+{
+  "name": "create_issue",
+  "arguments": {
+    "project_key": "DEVOPS",
+    "summary": "Fix flaky integration test suite",
+    "description": "The suite fails randomly on CI.",
+    "issuetype": "Task"
+  }
+}
+```
+
+**Returns:**
+
+```text
+Created Task DEVOPS-200 in DEVOPS.
+Issue ID: 10001
+```
+
+With `parent_key`:
+
+```text
+Created Sub-task DEVOPS-201 in DEVOPS (parent DEVOPS-100).
+Issue ID: 10002
+```
+
+---
+
+## 💬 `add_issue_comment`
+
+Add a comment to an existing Jira issue. Maps to
+`POST /rest/api/2/issue/{key}/comment`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `issue_key` | string | yes | Jira issue key (e.g. `DEVOPS-100`) |
+| `comment` | string | yes | Comment text. Non-empty. |
+
+**Example call:**
+
+```json
+{
+  "name": "add_issue_comment",
+  "arguments": {
+    "issue_key": "DEVOPS-100",
+    "comment": "Root cause found: stale cache in the auth layer."
+  }
+}
+```
+
+**Returns:**
+
+```text
+Added comment 10500 to DEVOPS-100.
+```
+
+---
+
+## 🧩 `list_issue_templates`
+
+List available task templates (builtin + user overrides from
+`JTM_TEMPLATES_DIR`). Each entry carries the template name, the parent
+title pattern, the child subtask count, and the parent/child issue types.
+
+**Parameters:** none.
+
+**Example call:**
+
+```json
+{
+  "name": "list_issue_templates",
+  "arguments": {}
+}
+```
+
+**Returns:**
+
+```text
+Task templates (1):
+- stand-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
+```
+
+See [task-templates.md](task-templates.md) for the template file format.
+
+---
+
+## 🧩 `create_issue_from_template`
+
+Create a parent Jira issue plus its child subtasks from a task template.
+The parent is created first; children are created **sequentially** in
+template order, each linked to the parent. On the first child failure,
+creation **stops** and the report lists what was created so far — earlier
+children are NOT rolled back. A parent failure aborts the whole call
+before any child is attempted.
+
+Template titles, descriptions, and tags are jinja2-rendered with the
+call arguments (see [task-templates.md](task-templates.md)).
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `template` | string | yes | Task template name (e.g. `stand-preparation`). |
+| `project_key` | string | yes | Target project key (e.g. `DEVOPS`). |
+| `summary` | string | yes | The user's task description — rendered into the parent title (`{{ summary }}`) and available to child descriptions. |
+| `description` | string | no | Optional extra context — available to template descriptions as `{{ user_description }}`. |
+
+**Example call:**
+
+```json
+{
+  "name": "create_issue_from_template",
+  "arguments": {
+    "template": "stand-preparation",
+    "project_key": "DEVOPS",
+    "summary": "Новый стенд ландшафта",
+    "description": "пилотный стенд"
+  }
+}
+```
+
+**Returns:**
+
+```text
+Created parent Task DEVOPS-200.
+Created children (15/15):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  ...
+All children created successfully.
+```
+
+On a child failure:
+
+```text
+Created parent Task DEVOPS-200.
+Created children (2/4):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  x Run the deployment pipeline (failed: Jira/Tempo API error: API error 400 from ...)
+Creation stopped at the first failure — earlier children were created and are NOT rolled back.
 ```
 
 ---
@@ -537,6 +707,7 @@ results.
 | `jql` | string | yes | JQL query string (e.g. `project = DEVOPS AND assignee = golikhin ORDER BY updated DESC`) |
 | `fields` | string | no | Comma-separated field names to return. Defaults to `summary,status,priority,duedate,assignee,issuetype,project,created,updated`. |
 | `max_results` | integer | no | Max results. Defaults to `50`. Capped at `100`. |
+| `include_description` | boolean | no | Also return each issue's description. Defaults to `false` to keep list responses compact. |
 
 **Example call:**
 
@@ -556,6 +727,15 @@ results.
 Issues matching JQL (2):
 - [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
 - [DEVOPS-102] Migrate Valkey chart | Open | priority=Medium | due=— | assignee=golikhin
+```
+
+With `include_description: true` each line is followed by an indented
+description:
+
+```text
+Issues matching JQL (1):
+- [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
+    Description: Split the release workflow into reusable jobs.
 ```
 
 ---

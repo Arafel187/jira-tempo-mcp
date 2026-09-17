@@ -21,6 +21,7 @@ Track time, list worklogs, and generate weekly reports — all from your AI agen
 | [Configuration](docs/configuration.md) | Environment variables reference |
 | [Reports](docs/reports.md) | Report formats (txt, md, json) and templates |
 | [Templates](docs/templates.md) | Custom report templates reference (Jinja2 + Python) |
+| [Task templates](docs/task-templates.md) | Task templates reference (parent issue + child subtasks from YAML) |
 | [Architecture](docs/architecture.md) | Project architecture and design decisions |
 | [CLI](docs/cli.md) | Command-line interface reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
@@ -38,6 +39,10 @@ Track time, list worklogs, and generate weekly reports — all from your AI agen
 | `create_worklog` | Track time on a Jira issue with a comment |
 | `delete_worklog` | Delete a worklog (undo mis-tracked time) |
 | `get_issue` | Get Jira issue metadata (summary, status, project) |
+| `create_issue` | Create a new Jira issue (optionally a subtask via parent key) |
+| `add_issue_comment` | Add a comment to an existing Jira issue |
+| `list_issue_templates` | List available task templates (builtin + user overrides) |
+| `create_issue_from_template` | Create a parent issue plus ordered child subtasks from a task template |
 | `list_favorite_issues` | List favorite issues for the current user |
 | `search_users` | Search Jira users by name, surname, or username |
 | `list_user_tasks` | Get tasks assigned to a Jira user with status, priority, comments |
@@ -381,3 +386,27 @@ For builtin template examples and the rendered-output gallery, see
 ##  License
 
 MIT
+
+---
+
+## 🛠 CI / Релизы — кластерный конвейер `release-pipeline`
+
+Этот проект подключён к общему кластерному конвейеру релизов
+([Korrnals/release-pipeline](https://github.com/Korrnals/release-pipeline),
+K3s `abyss-ai-agent`, namespace `release-pipeline`). GitHub Actions не
+используется (биллинг аккаунта заблокирован) — конвейер и есть штатный путь
+релизов. Релизный артефакт подписывается трёхслойно: SHA256 → SBOM → cosign → GPG.
+
+**Релиз новой версии:**
+1. `VERSION` → релизный коммит (конвенция репо) → тег `vX.Y.Z` → push.
+2. Обновить версию проекта в `projects[]` файла `~/.cache/release-pipeline-values.yaml` и применить:
+   ```bash
+   helm upgrade --install release-pipeline \
+     ~/LABs/Projects/Project-Umbra/release-pipeline/chart/release-pipeline \
+     --kube-context abyss-ai-agent -n release-pipeline \
+     -f ~/.cache/release-pipeline-values.yaml
+   ```
+3. Наблюдение: `kubectl --context abyss-ai-agent -n release-pipeline get jobs`,
+   логи: `kubectl ... logs -f job/release-<proj>-<ver>`.
+
+Подробности (типы проектов, kaniko-контейнеры, teardown): README конвейера.

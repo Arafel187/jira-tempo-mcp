@@ -308,13 +308,91 @@ class JiraTempoClient:
     # --- Jira issue ---
 
     async def get_issue(self, issue_key: str) -> dict[str, Any]:
-        """Get issue metadata (key, summary, status, project, priority, assignee, duedate, issuetype, components)."""
+        """Get issue metadata (key, summary, status, project, priority, assignee, duedate, issuetype, components, description)."""
         url = f"{self._config.jira_api_base}/issue/{issue_key}"
-        fields = "summary,status,project,issuetype,priority,assignee,duedate,components"
+        fields = "summary,status,project,issuetype,priority,assignee,duedate,components,description"
         data = await self._request("GET", url, self._jira_headers(), params={"fields": fields})
         if not isinstance(data, dict):
             raise JiraTempoError(f"Unexpected response for issue {issue_key}")
         return data
+
+    async def create_issue(
+        self,
+        project_key: str,
+        summary: str,
+        description: str = "",
+        issuetype: str = "Task",
+        parent_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a Jira issue via POST /rest/api/2/issue.
+
+        project_key: target project (e.g. ``DEVOPS``).
+        summary: issue summary (non-empty).
+        description: optional issue description (Jira wiki markup or plain text).
+        issuetype: issue type name (e.g. ``Task``, ``Sub-task``). Defaults to
+            ``Task``.
+        parent_key: optional parent issue key (e.g. ``DEVOPS-100``). When set,
+            the ``parent`` field is included in the payload — Jira REST v2
+            documents ``"parent": {"key": "PROJ-123"}`` and this covers both
+            team-managed subtasks and company-managed epic/parent links.
+
+        Returns a normalized dict: ``key``, ``id``, ``self`` (the fields Jira
+        returns from the create endpoint).
+
+        Raises :class:`JiraTempoError` for empty project/summary/issuetype
+        (client-side validation) and on API errors.
+        """
+        if not isinstance(project_key, str) or not project_key.strip():
+            raise JiraTempoError("project_key must be a non-empty string.")
+        if not isinstance(summary, str) or not summary.strip():
+            raise JiraTempoError("summary must be a non-empty string.")
+        if not isinstance(issuetype, str) or not issuetype.strip():
+            raise JiraTempoError("issuetype must be a non-empty string.")
+
+        url = f"{self._config.jira_api_base}/issue"
+        fields: dict[str, Any] = {
+            "project": {"key": project_key.strip().upper()},
+            "summary": summary,
+            "issuetype": {"name": issuetype.strip()},
+        }
+        if description:
+            fields["description"] = description
+        if parent_key:
+            if not isinstance(parent_key, str) or not parent_key.strip():
+                raise JiraTempoError("parent_key must be a non-empty string when provided.")
+            fields["parent"] = {"key": parent_key.strip().upper()}
+        data = await self._request("POST", url, self._jira_headers(), json={"fields": fields})
+        if not isinstance(data, dict):
+            raise JiraTempoError("Unexpected response shape from issue creation")
+        return {
+            "key": data.get("key", ""),
+            "id": data.get("id", ""),
+            "self": data.get("self", ""),
+        }
+
+    async def add_issue_comment(self, issue_key: str, comment: str) -> dict[str, Any]:
+        """Add a comment to a Jira issue via POST /rest/api/2/issue/{key}/comment.
+
+        Returns a normalized dict: ``id`` (comment id), ``self`` (comment URL),
+        ``body`` (stored comment text).
+
+        Raises :class:`JiraTempoError` for an empty comment (client-side
+        validation) and on API errors.
+        """
+        if not isinstance(comment, str) or not comment.strip():
+            raise JiraTempoError("comment must be a non-empty string.")
+
+        url = f"{self._config.jira_api_base}/issue/{issue_key}/comment"
+        data = await self._request(
+            "POST", url, self._jira_headers(), json={"body": comment}
+        )
+        if not isinstance(data, dict):
+            raise JiraTempoError(f"Unexpected response shape for comment on {issue_key}")
+        return {
+            "id": data.get("id", ""),
+            "self": data.get("self", ""),
+            "body": data.get("body", ""),
+        }
 
     # --- Tempo worklogs ---
 
@@ -800,10 +878,19 @@ class JiraTempoClient:
         jql: str,
         fields: str = "summary,status,priority,duedate,assignee,issuetype,project,created,updated",
         max_results: int = 50,
+        include_description: bool = False,
     ) -> list[dict[str, Any]]:
-        """Search Jira issues via JQL (read-only GET /rest/api/2/search)."""
+        """Search Jira issues via JQL (read-only GET /rest/api/2/search).
+
+        include_description: opt-in flag — when True, ``description`` is added
+        to the requested fields and included in each mapped issue. Defaults to
+        False so list responses keep the compact contract (descriptions can be
+        large and must not inflate list responses silently).
+        """
         if not isinstance(jql, str) or not jql.strip():
             raise JiraTempoError("jql must be a non-empty string.")
+        if include_description:
+            fields = f"{fields},description"
         # Cap the TOTAL result size at 100, but page through startAt/total
         # so the cap is honoured without early truncation on large result sets.
         capped_max = min(max_results, 100)
@@ -837,21 +924,22 @@ class JiraTempoClient:
             assignee_obj = fields_obj.get("assignee", {})
             if not isinstance(assignee_obj, dict):
                 assignee_obj = {}
-            issues.append(
-                {
-                    "key": issue.get("key", ""),
-                    "summary": fields_obj.get("summary", ""),
-                    "status": status_obj.get("name", ""),
-                    "priority": priority_obj.get("name", ""),
-                    "duedate": fields_obj.get("duedate", ""),
-                    "assignee": assignee_obj.get("displayName", ""),
-                    "issuetype": issuetype_obj.get("name", ""),
-                    "project": project_obj.get("name", ""),
-                    "projectKey": project_obj.get("key", ""),
-                    "created": fields_obj.get("created", ""),
-                    "updated": fields_obj.get("updated", ""),
-                }
-            )
+            mapped: dict[str, Any] = {
+                "key": issue.get("key", ""),
+                "summary": fields_obj.get("summary", ""),
+                "status": status_obj.get("name", ""),
+                "priority": priority_obj.get("name", ""),
+                "duedate": fields_obj.get("duedate", ""),
+                "assignee": assignee_obj.get("displayName", ""),
+                "issuetype": issuetype_obj.get("name", ""),
+                "project": project_obj.get("name", ""),
+                "projectKey": project_obj.get("key", ""),
+                "created": fields_obj.get("created", ""),
+                "updated": fields_obj.get("updated", ""),
+            }
+            if include_description:
+                mapped["description"] = fields_obj.get("description", "")
+            issues.append(mapped)
         return issues
 
     # --- Current user (UX-6) ---

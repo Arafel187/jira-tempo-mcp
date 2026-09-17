@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- `list_issue_templates` MCP tool (`server.py` + `task_templates.py`) — lists available task templates (builtin + user overrides from `JTM_TEMPLATES_DIR`), each with name, parent title pattern, child count, and parent/child issue types.
+- `create_issue_from_template` MCP tool — creates a parent Jira issue plus sequentially created child subtasks from a YAML task template; on the first child failure it stops and reports created-so-far (no rollback). Built-in template `stand-preparation` (15 child tasks) ships with the package; user overrides via `JTM_TEMPLATES_DIR`.
+- `task_templates.py` module — pydantic-validated template schema, sandboxed Jinja2 rendering (`summary`/`user_description`/`project_key`/`today` context), `importlib.resources` built-in loading, and name-based override precedence.
+- Docs: `docs/task-templates.md` / `docs/task-templates.ru.md` (template YAML format, `JTM_TEMPLATES_DIR` override, example), contracts for both tools in `docs/api.md` / `docs/api.ru.md`, tool-count references updated 17 → 19 (api, architecture, README feature tables).
+- 32 tests covering schema validation, built-in loading, jinja2 rendering (incl. sandbox escape), registry precedence, and both new tools (happy path, partial failure, parent-failure abort, validation).
+
+### Added
+
+- `create_issue` MCP tool (`server.py` + `client.py`) — creates a Jira issue via `POST /rest/api/2/issue` with project key, summary, optional description/issuetype (default `Task`), and optional `parent_key` (included as the `parent` field for subtasks or epic links). Returns the normalized `{key, id, self}` from Jira.
+- `add_issue_comment` MCP tool (`server.py` + `client.py`) — posts a comment via `POST /rest/api/2/issue/{key}/comment`; returns normalized `{id, self, body}`. Server-side and client-side validation rejects empty comments.
+- 19 tests (mock-transport client tests + handler-level tests) covering happy paths, the parent-field payload, validation errors, and API-error propagation.
+- Docs: both tools added to `docs/api.md` / `docs/api.ru.md` (tool index + full contracts), tool-count references updated 15 → 17 in `architecture.md` / `architecture.ru.md`, and both README feature tables extended.
+
+### Fixed
+
+- `create_issue_from_template` no longer creates silently orphaned children when Jira's parent-create response lacks an issue `key` — the call aborts as a parent failure before any child is attempted (previously children were created unlinked with the `parent` field omitted while the report printed `Created parent ?`).
+- Removed the dead `project_key` field from the task-template schema and docs (EN+RU) — it was documented as "default project key; may be overridden at call time" but never read by the handler; the target project is always provided at call time. Legacy template files containing `project_key` keep loading (pydantic ignores the unknown field).
+- `JTM_TEMPLATES_DIR` now expands a leading `~` (matches the documented example) — previously a tilde path was taken literally and the override directory was silently missing in `.env` / systemd / docker contexts.
+- Renamed the built-in task template `standup-preparation` → `stand-preparation` — the old name was a translation error (the owner's «стенд» / test environment was rendered as "standup", the scrum meeting). Parent description rewritten to «Подготовка нового стенда.»; the 15 child tasks were already environment-provisioning wording and stay unchanged. No migration needed: user override files re-key on `name: stand-preparation`.
 
 ## [0.4.3] — 2026-08-08
 

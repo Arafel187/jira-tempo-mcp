@@ -27,6 +27,7 @@ dependencies = [
     "pydantic>=2.7.0",
     "pytz>=2024.1",
     "jinja2>=3.1",  # template engine (v0.2.0)
+    "pyyaml>=6.0",  # task templates (parent + child subtasks from YAML)
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,7 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
     "types-pytz>=2024.1",
+    "types-PyYAML>=6.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pre-commit>=3.6.0",
@@ -44,6 +46,11 @@ jira-tempo-mcp = "jira_tempo_mcp.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Built-in task templates (parent + child subtasks from YAML) are package
+# data: they must ship inside the wheel for importlib.resources discovery.
+[tool.setuptools.package-data]
+"jira_tempo_mcp.templates" = ["tasks/*.yaml"]
 
 # NOTE: install.py stays at the project root. It is included in the sdist via
 # MANIFEST.in (which also ships .env.example-equivalents and copilot-integration/

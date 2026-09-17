@@ -1,6 +1,6 @@
 # 🌐 API — MCP-инструменты
 
-Сервер открывает 15 инструментов через Model Context Protocol. Каждый
+Сервер открывает 19 инструментов через Model Context Protocol. Каждый
 инструмент определён в `src/jira_tempo_mcp/server.py` и диспетчеризуется
 через таблицу (`_TOOL_HANDLERS`).
 
@@ -14,7 +14,11 @@
 | [`get_worklog`](#-get_worklog) | Worklog'и | Получить один worklog по Tempo ID |
 | [`create_worklog`](#-create_worklog) | Worklog'и | Учесть время на задаче Jira |
 | [`delete_worklog`](#-delete_worklog) | Worklog'и | Удалить worklog по ID |
-| [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (8 полей) |
+| [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (9 полей, включая описание) |
+| [`create_issue`](#-create_issue) | Задачи | Создать новую задачу в проекте (в том числе подзадачу) |
+| [`add_issue_comment`](#-add_issue_comment) | Задачи | Добавить комментарий к существующей задаче |
+| [`list_issue_templates`](#-list_issue_templates) | Задачи | Показать доступные шаблоны задач (встроенные + пользовательские) |
+| [`create_issue_from_template`](#-create_issue_from_template) | Задачи | Создать родительскую задачу и дочерние подзадачи из шаблона задач |
 | [`list_favorite_issues`](#-list_favorite_issues) | Задачи | Список избранных задач текущего пользователя |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Задачи | Поиск задач через JQL-запрос |
 | [`get_current_user`](#-get_current_user) | Пользователи | Данные аутентифицированного пользователя |
@@ -175,8 +179,8 @@ Deleted worklog 12345.
 
 ## 📋 `get_issue`
 
-Получить метаданные задачи Jira: summary, статус, проект, приоритет,
-исполнителя, срок, тип задачи и компоненты (8 полей).
+Получить метаданные задачи Jira: summary, описание, статус, проект,
+приоритет, исполнителя, срок, тип задачи и компоненты (9 полей).
 
 **Параметры:**
 
@@ -204,6 +208,172 @@ Assignee: Ivan Golikhin
 Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
+Description: Login fails for LDAP users after session timeout.
+```
+
+---
+
+## 🆕 `create_issue`
+
+Создать новую задачу Jira в проекте. Опционально задаётся тип задачи и
+ключ родительской задачи (для подзадач или связи с эпиком). Соответствует
+`POST /rest/api/2/issue`.
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `project_key` | string | да | Ключ целевого проекта (напр. `DEVOPS`). |
+| `summary` | string | да | Заголовок задачи. Непустой. |
+| `description` | string | нет | Описание задачи. По умолчанию пустое. |
+| `issuetype` | string | нет | Тип задачи (напр. `Task`, `Sub-task`). По умолчанию `Task`. |
+| `parent_key` | string | нет | Ключ родительской задачи (напр. `DEVOPS-100`) для подзадач или связи с эпиком. Если задан, в payload добавляется поле `parent`. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "create_issue",
+  "arguments": {
+    "project_key": "DEVOPS",
+    "summary": "Починить нестабильный интеграционный тест",
+    "description": "Сьют случайно падает на CI.",
+    "issuetype": "Task"
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Created Task DEVOPS-200 in DEVOPS.
+Issue ID: 10001
+```
+
+С `parent_key`:
+
+```text
+Created Sub-task DEVOPS-201 in DEVOPS (parent DEVOPS-100).
+Issue ID: 10002
+```
+
+---
+
+## 💬 `add_issue_comment`
+
+Добавить комментарий к существующей задаче Jira. Соответствует
+`POST /rest/api/2/issue/{key}/comment`.
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `issue_key` | string | да | Ключ задачи Jira (напр. `DEVOPS-100`) |
+| `comment` | string | да | Текст комментария. Непустой. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "add_issue_comment",
+  "arguments": {
+    "issue_key": "DEVOPS-100",
+    "comment": "Корневая причина найдена: устаревший кэш в слое авторизации."
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Added comment 10500 to DEVOPS-100.
+```
+
+---
+
+## 🧩 `list_issue_templates`
+
+Показать доступные шаблоны задач (встроенные + пользовательские из
+`JTM_TEMPLATES_DIR`). Каждая запись содержит имя шаблона, шаблон заголовка
+родителя, количество дочерних задач и типы родительских/дочерних задач.
+
+**Параметры:** нет.
+
+**Пример вызова:**
+
+```json
+{
+  "name": "list_issue_templates",
+  "arguments": {}
+}
+```
+
+**Возвращает:**
+
+```text
+Task templates (1):
+- stand-preparation: title='{{ summary }}', children=15, parent_issuetype=Task, child_issuetype=Sub-task
+```
+
+Формат файла шаблона — в [task-templates.ru.md](task-templates.ru.md).
+
+---
+
+## 🧩 `create_issue_from_template`
+
+Создать родительскую задачу Jira и её дочерние подзадачи из шаблона задач.
+Родитель создаётся первым; дочерние создаются **последовательно** в порядке
+из шаблона, каждая связана с родителем. При первой ошибке дочерней задачи
+создание **останавливается**, и отчёт перечисляет созданное на текущий
+момент — ранее созданные задачи НЕ откатываются. Ошибка родителя прерывает
+весь вызов до первой дочерней задачи.
+
+Заголовки, описания и теги рендерятся через jinja2 с аргументами вызова
+(подробнее — [task-templates.ru.md](task-templates.ru.md)).
+
+**Параметры:**
+
+| Имя | Тип | Обяз. | Описание |
+| --- | --- | --- | --- |
+| `template` | string | да | Имя шаблона задач (напр. `stand-preparation`). |
+| `project_key` | string | да | Ключ целевого проекта (напр. `DEVOPS`). |
+| `summary` | string | да | Описание задачи от вызывающего — рендерится в заголовок родителя (`{{ summary }}`) и доступно описаниям дочерних задач. |
+| `description` | string | нет | Необязательный дополнительный контекст — доступен описаниям шаблона как `{{ user_description }}`. |
+
+**Пример вызова:**
+
+```json
+{
+  "name": "create_issue_from_template",
+  "arguments": {
+    "template": "stand-preparation",
+    "project_key": "DEVOPS",
+    "summary": "Новый стенд ландшафта",
+    "description": "пилотный стенд"
+  }
+}
+```
+
+**Возвращает:**
+
+```text
+Created parent Task DEVOPS-200.
+Created children (15/15):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  ...
+All children created successfully.
+```
+
+При ошибке дочерней задачи:
+
+```text
+Created parent Task DEVOPS-200.
+Created children (2/15):
+  + DEVOPS-201 (created)
+  + DEVOPS-202 (created)
+  x Прогнать smoke-тесты на стенде (failed: Jira/Tempo API error: API error 400 from ...)
+Creation stopped at the first failure — earlier children were created and are NOT rolled back.
 ```
 
 ---
@@ -542,6 +712,7 @@ Tasks for golikhin (2):
 | `jql` | string | да | Строка JQL-запроса (напр. `project = DEVOPS AND assignee = golikhin ORDER BY updated DESC`) |
 | `fields` | string | нет | Поля через запятую. По умолч. `summary,status,priority,duedate,assignee,issuetype,project,created,updated`. |
 | `max_results` | integer | нет | Максимальное количество результатов. По умолч. `50`. Ограничено `100`. |
+| `include_description` | boolean | нет | Дополнительно вернуть описание каждой задачи. По умолч. `false` — чтобы списки оставались компактными. |
 
 **Пример вызова:**
 
@@ -561,6 +732,14 @@ Tasks for golikhin (2):
 Issues matching JQL (2):
 - [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
 - [DEVOPS-102] Migrate Valkey chart | Open | priority=Medium | due=— | assignee=golikhin
+```
+
+С `include_description: true` после каждой строки идёт отступ с описанием:
+
+```text
+Issues matching JQL (1):
+- [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
+    Description: Split the release workflow into reusable jobs.
 ```
 
 ---

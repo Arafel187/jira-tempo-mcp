@@ -31,6 +31,12 @@ from .client import (
 )
 from .config import Config, load_config
 from .report import generate_weekly_report
+from .task_templates import (
+    TEMPLATE_ERRORS,
+    TaskTemplate,
+    build_task_template_registry,
+    render_context,
+)
 from .tasks_report import generate_tasks_report
 from .team_report import generate_team_report
 from .templates.loader import build_registry, resolve_template
@@ -129,7 +135,10 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="get_issue",
-        description="Get Jira issue metadata: summary, status, project, priority, assignee, duedate, issuetype, components.",
+        description=(
+            "Get Jira issue metadata: summary, description, status, project, priority, "
+            "assignee, duedate, issuetype, components."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -139,6 +148,118 @@ TOOLS: list[Tool] = [
                 },
             },
             "required": ["issue_key"],
+        },
+    ),
+    Tool(
+        name="create_issue",
+        description=(
+            "Create a new Jira issue in a project. "
+            "Provide project key, summary, and optionally a description, "
+            "issue type (default 'Task'), and a parent issue key for subtasks. "
+            "Use when you need to create issues or subtasks from an agent. "
+            "For time tracking on the new issue, follow up with create_worklog."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_key": {
+                    "type": "string",
+                    "description": "Target project key (e.g. 'DEVOPS').",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Issue summary (title). Non-empty.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional issue description.",
+                },
+                "issuetype": {
+                    "type": "string",
+                    "description": "Issue type name (e.g. 'Task', 'Sub-task'). Defaults to 'Task'.",
+                },
+                "parent_key": {
+                    "type": "string",
+                    "description": (
+                        "Optional parent issue key (e.g. 'DEVOPS-100') for subtasks "
+                        "or epic links."
+                    ),
+                },
+            },
+            "required": ["project_key", "summary"],
+        },
+    ),
+    Tool(
+        name="add_issue_comment",
+        description=(
+            "Add a comment to an existing Jira issue. "
+            "Use when you need to post progress notes, questions, or findings "
+            "to an issue. Comment text is required and must be non-empty."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_key": {
+                    "type": "string",
+                    "description": "Jira issue key (e.g. 'DEVOPS-100').",
+                },
+                "comment": {
+                    "type": "string",
+                    "description": "Comment text. Non-empty.",
+                },
+            },
+            "required": ["issue_key", "comment"],
+        },
+    ),
+    Tool(
+        name="list_issue_templates",
+        description=(
+            "List available task templates (builtin + user overrides). "
+            "Each entry carries the template name, parent title pattern, "
+            "and child subtask count. Use create_issue_from_template with "
+            "one of these names."
+        ),
+        inputSchema={"type": "object", "properties": {}, "required": []},
+    ),
+    Tool(
+        name="create_issue_from_template",
+        description=(
+            "Create a parent Jira issue plus its child subtasks from a task "
+            "template. Children are created sequentially; on the first child "
+            "failure creation stops and the report lists what was created so "
+            "far (no rollback). Use list_issue_templates to discover names."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "template": {
+                    "type": "string",
+                    "description": (
+                        "Task template name (e.g. 'stand-preparation'). "
+                        "Use list_issue_templates to see available names."
+                    ),
+                },
+                "project_key": {
+                    "type": "string",
+                    "description": "Target project key (e.g. 'DEVOPS'). Required.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "The user's task description — rendered into the parent "
+                        "title (via the template's title pattern) and available "
+                        "to child descriptions as {{ summary }}."
+                    ),
+                },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Optional extra context from the user — available to "
+                        "template descriptions as {{ user_description }}."
+                    ),
+                },
+            },
+            "required": ["template", "project_key", "summary"],
         },
     ),
     Tool(
@@ -348,7 +469,8 @@ TOOLS: list[Tool] = [
         description=(
             "Search Jira issues by JQL query (read-only). "
             "Returns a formatted list of issues with key, summary, status, priority, "
-            "duedate, assignee, issuetype, and project. Max 100 results."
+            "duedate, assignee, issuetype, and project. Max 100 results. "
+            "Set include_description=true to also return each issue's description."
         ),
         inputSchema={
             "type": "object",
@@ -369,6 +491,14 @@ TOOLS: list[Tool] = [
                     "type": "integer",
                     "description": "Max results. Defaults to 50. Capped at 100.",
                     "default": 50,
+                },
+                "include_description": {
+                    "type": "boolean",
+                    "description": (
+                        "Also return each issue's description. "
+                        "Defaults to false to keep list responses compact."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["jql"],
@@ -787,6 +917,7 @@ async def _handle_get_issue(
     components = ", ".join(
         c.get("name", "") for c in components_list if isinstance(c, dict) and c.get("name")
     )
+    description = fields.get("description", "") or "—"
     lines = [f"{key}: {summary}"]
     lines.append(f"Status: {status}")
     lines.append(f"Project: {project}")
@@ -795,6 +926,180 @@ async def _handle_get_issue(
     lines.append(f"Due date: {duedate}")
     lines.append(f"Issue type: {issuetype or '—'}")
     lines.append(f"Components: {components or '—'}")
+    lines.append(f"Description: {description}")
+    return "\n".join(lines)
+
+
+async def _handle_create_issue(
+    arguments: dict[str, Any], config: Config, client: JiraTempoClient
+) -> str:
+    project_key = arguments.get("project_key")
+    if not isinstance(project_key, str) or not project_key.strip():
+        raise ValueError("'project_key' must be a non-empty string.")
+    summary = arguments.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("'summary' must be a non-empty string.")
+    description = arguments.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError("'description' must be a string.")
+    issuetype = arguments.get("issuetype", "Task")
+    if not isinstance(issuetype, str) or not issuetype.strip():
+        raise ValueError("'issuetype' must be a non-empty string.")
+    parent_key = arguments.get("parent_key")
+    if parent_key is not None:
+        parent_key = _validate_issue_key(parent_key)
+
+    result = await client.create_issue(
+        project_key,
+        summary,
+        description=description,
+        issuetype=issuetype,
+        parent_key=parent_key,
+    )
+    parent_note = f" (parent {parent_key})" if parent_key else ""
+    return (
+        f"Created {issuetype} {result.get('key', '?')} in {project_key.strip()}{parent_note}.\n"
+        f"Issue ID: {result.get('id', '?')}"
+    )
+
+
+async def _handle_add_issue_comment(
+    arguments: dict[str, Any], config: Config, client: JiraTempoClient
+) -> str:
+    key = _validate_issue_key(arguments["issue_key"])
+    comment = arguments.get("comment")
+    if not isinstance(comment, str) or not comment.strip():
+        raise ValueError("'comment' must be a non-empty string.")
+
+    result = await client.add_issue_comment(key, comment)
+    return f"Added comment {result.get('id', '?')} to {key}."
+
+
+async def _handle_list_issue_templates(
+    arguments: dict[str, Any], config: Config, _client: JiraTempoClient
+) -> str:
+    # _client is intentionally unused: listing templates never calls Jira.
+    # The dispatch table passes it positionally, so the parameter must stay.
+    registry = build_task_template_registry(config.task_template_dir)
+    if not registry:
+        return "No task templates available."
+    lines = [f"Task templates ({len(registry)}):"]
+    for name in sorted(registry):
+        tpl = registry[name]
+        title = tpl.title if "{{" not in tpl.title else tpl.title
+        lines.append(
+            f"- {name}: title={title!r}, children={len(tpl.tasks)}, "
+            f"parent_issuetype={tpl.parent_issuetype}, child_issuetype={tpl.child_issuetype}"
+        )
+    return "\n".join(lines)
+
+
+def _select_task_template(
+    name: str, config: Config
+) -> TaskTemplate:
+    """Resolve a task template by name from the registry.
+
+    Raises ``ValueError`` listing the available names when not found —
+    mirrors the report-template handler's error shape.
+    """
+    registry = build_task_template_registry(config.task_template_dir)
+    tpl = registry.get(name)
+    if tpl is None:
+        available = ", ".join(sorted(registry)) or "(none)"
+        raise ValueError(
+            f"Unknown task template {name!r}. Available: {available}. "
+            "Use list_issue_templates to see the current list."
+        )
+    return tpl
+
+
+async def _handle_create_issue_from_template(
+    arguments: dict[str, Any], config: Config, client: JiraTempoClient
+) -> str:
+    template_name = arguments.get("template")
+    if not isinstance(template_name, str) or not template_name.strip():
+        raise ValueError("'template' must be a non-empty string.")
+    project_key = arguments.get("project_key")
+    if not isinstance(project_key, str) or not project_key.strip():
+        raise ValueError("'project_key' must be a non-empty string.")
+    summary = arguments.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("'summary' must be a non-empty string.")
+    user_description = arguments.get("description", "")
+    if not isinstance(user_description, str):
+        raise ValueError("'description' must be a string.")
+
+    template = _select_task_template(template_name.strip(), config)
+    context = render_context(
+        summary.strip(),
+        project_key.strip().upper(),
+        user_description=user_description,
+    )
+    parent_summary, parent_description, children = template.render(context)
+
+    # Create the parent first; a parent failure aborts the whole call.
+    parent = await client.create_issue(
+        project_key.strip().upper(),
+        parent_summary,
+        description=parent_description,
+        issuetype=template.parent_issuetype,
+    )
+    # A parent response without an issue key counts as a parent failure:
+    # without a key there is nothing to link children to — creating them
+    # would silently orphan the whole subtree, so no child is attempted.
+    parent_key = str(parent.get("key", ""))
+    if not parent_key:
+        # The parent may actually exist in Jira (2xx was returned) — surface
+        # every handle the payload carries so the user can locate and clean
+        # up the orphaned parent instead of guessing.
+        evidence = []
+        if parent.get("id"):
+            evidence.append(f"id={parent['id']}")
+        if parent.get("self"):
+            evidence.append(f"self={parent['self']}")
+        evidence_str = f" ({', '.join(evidence)})" if evidence else ""
+        raise JiraTempoError(
+            "Jira did not return an issue key for the created parent "
+            f"({template.parent_issuetype} {parent_summary!r}){evidence_str} "
+            "— aborting; no children were created. The parent may already "
+            "exist in Jira — check and delete it manually if unwanted."
+        )
+    lines = [f"Created parent {template.parent_issuetype} {parent_key}."]
+
+    # Children are created sequentially in template order. On the first
+    # failure: stop, report what was created so far — no rollback, no retry.
+    created: list[str] = []
+    failed: dict[str, str] = {}
+    for child_summary, child_description in children:
+        try:
+            child = await client.create_issue(
+                project_key.strip().upper(),
+                child_summary,
+                description=child_description,
+                issuetype=template.child_issuetype,
+                parent_key=parent_key,
+            )
+            child_key = str(child.get("key", ""))
+            created.append(child_key or "?")
+        # Client errors (JiraTempoError — HTTP failures) and template errors
+        # (ValueError/yaml.YAMLError — defensive; rendering happened earlier)
+        # both count as a child failure: stop, report created-so-far, no rollback.
+        except (*TEMPLATE_ERRORS, JiraTempoError) as exc:
+            failed[child_summary] = _user_friendly_error(exc)
+            break
+
+    lines.append(f"Created children ({len(created)}/{len(children)}):")
+    for child_key in created:
+        lines.append(f"  + {child_key} (created)")
+    if failed:
+        for child_summary, reason in failed.items():
+            lines.append(f"  x {child_summary} (failed: {reason})")
+        lines.append(
+            "Creation stopped at the first failure — earlier children were "
+            "created and are NOT rolled back."
+        )
+    else:
+        lines.append("All children created successfully.")
     return "\n".join(lines)
 
 
@@ -1130,8 +1435,11 @@ async def _handle_list_issues_by_jql(
     max_results = arguments.get("max_results", 50)
     if not isinstance(max_results, int) or max_results < 1:
         raise ValueError("'max_results' must be a positive integer.")
+    include_description = bool(arguments.get("include_description", False))
 
-    issues = await client.search_issues(jql, fields=fields, max_results=max_results)
+    issues = await client.search_issues(
+        jql, fields=fields, max_results=max_results, include_description=include_description
+    )
     if not issues:
         return f"No issues found for JQL: {jql}"
 
@@ -1144,6 +1452,9 @@ async def _handle_list_issues_by_jql(
             f"- [{issue['key']}] {issue['summary']} | {issue['status']} | "
             f"priority={priority} | due={due} | assignee={assignee}"
         )
+        if include_description:
+            description = str(issue.get("description", "") or "—")
+            lines.append(f"    Description: {description}")
     return "\n".join(lines)
 
 
@@ -1197,6 +1508,10 @@ _TOOL_HANDLERS: dict[str, Any] = {
     "create_worklog": _handle_create_worklog,
     "delete_worklog": _handle_delete_worklog,
     "get_issue": _handle_get_issue,
+    "create_issue": _handle_create_issue,
+    "add_issue_comment": _handle_add_issue_comment,
+    "list_issue_templates": _handle_list_issue_templates,
+    "create_issue_from_template": _handle_create_issue_from_template,
     "list_favorite_issues": _handle_list_favorites,
     "generate_weekly_report": _handle_generate_report,
     "generate_team_report": _handle_generate_team_report,
