@@ -12,7 +12,7 @@
 
 services:
   jira-tempo-mcp:
-    image: ghcr.io/korrnals/jira-tempo-mcp:0.4.3
+    image: ghcr.io/korrnals/jira-tempo-mcp:0.5.0
     container_name: jira-tempo-mcp
     env_file:
       - .env

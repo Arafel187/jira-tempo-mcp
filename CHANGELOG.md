@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-17
+
 ### Added
 
 - `list_issue_templates` MCP tool (`server.py` + `task_templates.py`) — lists available task templates (builtin + user overrides from `JTM_TEMPLATES_DIR`), each with name, parent title pattern, child count, and parent/child issue types.
@@ -14,9 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `task_templates.py` module — pydantic-validated template schema, sandboxed Jinja2 rendering (`summary`/`user_description`/`project_key`/`today` context), `importlib.resources` built-in loading, and name-based override precedence.
 - Docs: `docs/task-templates.md` / `docs/task-templates.ru.md` (template YAML format, `JTM_TEMPLATES_DIR` override, example), contracts for both tools in `docs/api.md` / `docs/api.ru.md`, tool-count references updated 17 → 19 (api, architecture, README feature tables).
 - 32 tests covering schema validation, built-in loading, jinja2 rendering (incl. sandbox escape), registry precedence, and both new tools (happy path, partial failure, parent-failure abort, validation).
-
-### Added
-
 - `create_issue` MCP tool (`server.py` + `client.py`) — creates a Jira issue via `POST /rest/api/2/issue` with project key, summary, optional description/issuetype (default `Task`), and optional `parent_key` (included as the `parent` field for subtasks or epic links). Returns the normalized `{key, id, self}` from Jira.
 - `add_issue_comment` MCP tool (`server.py` + `client.py`) — posts a comment via `POST /rest/api/2/issue/{key}/comment`; returns normalized `{id, self, body}`. Server-side and client-side validation rejects empty comments.
 - 19 tests (mock-transport client tests + handler-level tests) covering happy paths, the parent-field payload, validation errors, and API-error propagation.
