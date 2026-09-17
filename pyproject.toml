@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jira-tempo-mcp"
-version = "0.4.3"
+version = "0.5.0"
 description = "MCP server for self-hosted Jira + Tempo Timesheets: track time, list worklogs, generate weekly reports."
 readme = "README.md"
 requires-python = ">=3.11"
