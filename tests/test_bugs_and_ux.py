@@ -330,6 +330,42 @@ class TestUX2GetIssueExpanded:
         assert "Backend" in result
         assert "API" in result
 
+    async def test_description_displayed(self) -> None:
+        """UX-2 extension: description field is rendered in get_issue output."""
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.get_issue.return_value = {
+            "key": "DEVOPS-100",
+            "fields": {
+                "summary": "Test issue",
+                "status": {"name": "In Progress"},
+                "project": {"name": "DEVOPS"},
+                "priority": {"name": "High"},
+                "assignee": {"displayName": "Golikhin"},
+                "duedate": "2026-06-30",
+                "issuetype": {"name": "Task"},
+                "components": [{"name": "Backend"}],
+                "description": "Steps to reproduce the bug.",
+            },
+        }
+        result = await _handle_get_issue(
+            {"issue_key": "DEVOPS-100"}, config, cast(JiraTempoClient, mock_client)
+        )
+        assert "Description: Steps to reproduce the bug." in result
+
+    async def test_description_missing_shows_placeholder(self) -> None:
+        """Missing/empty description renders as an em-dash placeholder."""
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.get_issue.return_value = {
+            "key": "DEVOPS-100",
+            "fields": {"summary": "Test issue", "description": None},
+        }
+        result = await _handle_get_issue(
+            {"issue_key": "DEVOPS-100"}, config, cast(JiraTempoClient, mock_client)
+        )
+        assert "Description: —" in result
+
 
 # --- UX-3: comments in list_user_tasks ---
 
@@ -459,6 +495,52 @@ class TestUX5ListIssuesByJql:
             {"jql": "project = NONEXISTENT"}, config, cast(JiraTempoClient, mock_client)
         )
         assert "No issues found" in result
+
+    async def test_include_description_shows_description(self) -> None:
+        """UX-5 extension: include_description=True renders description per issue."""
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.search_issues.return_value = [
+            {
+                "key": "DEVOPS-1",
+                "summary": "Task A",
+                "status": "In Progress",
+                "priority": "High",
+                "duedate": "2026-06-30",
+                "assignee": "Golikhin",
+                "description": "First issue description.",
+            }
+        ]
+        result = await _handle_list_issues_by_jql(
+            {"jql": "project = DEVOPS", "include_description": True},
+            config,
+            cast(JiraTempoClient, mock_client),
+        )
+        assert "Description: First issue description." in result
+
+    async def test_include_description_defaults_to_false(self) -> None:
+        """Default call (no include_description) keeps the compact contract."""
+        config = _make_config()
+        mock_client = AsyncMock(spec=JiraTempoClient)
+        mock_client.search_issues.return_value = [
+            {
+                "key": "DEVOPS-1",
+                "summary": "Task A",
+                "status": "In Progress",
+                "priority": "High",
+                "duedate": "2026-06-30",
+                "assignee": "Golikhin",
+                "description": "First issue description.",
+            }
+        ]
+        result = await _handle_list_issues_by_jql(
+            {"jql": "project = DEVOPS"},
+            config,
+            cast(JiraTempoClient, mock_client),
+        )
+        assert "Description:" not in result
+        # The client was called with include_description=False explicitly.
+        assert mock_client.search_issues.await_args.kwargs["include_description"] is False
 
 
 # --- UX-6: get_current_user ---

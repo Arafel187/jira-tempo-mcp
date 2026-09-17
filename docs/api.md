@@ -14,7 +14,7 @@ defined in `src/jira_tempo_mcp/server.py` and dispatched through a table
 | [`get_worklog`](#-get_worklog) | Worklogs | Get a single worklog by Tempo ID |
 | [`create_worklog`](#-create_worklog) | Worklogs | Track time on a Jira issue |
 | [`delete_worklog`](#-delete_worklog) | Worklogs | Delete a worklog by ID |
-| [`get_issue`](#-get_issue) | Issues | Get Jira issue metadata (8 fields) |
+| [`get_issue`](#-get_issue) | Issues | Get Jira issue metadata (9 fields, incl. description) |
 | [`list_favorite_issues`](#-list_favorite_issues) | Issues | List favorite issues for the current user |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Issues | Search issues by JQL query |
 | [`get_current_user`](#-get_current_user) | Users | Get authenticated user info |
@@ -175,8 +175,8 @@ Deleted worklog 12345.
 
 ## 📋 `get_issue`
 
-Get Jira issue metadata: summary, status, project, priority, assignee, due
-date, issue type, and components (8 fields).
+Get Jira issue metadata: summary, description, status, project, priority,
+assignee, due date, issue type, and components (9 fields).
 
 **Parameters:**
 
@@ -204,6 +204,7 @@ Assignee: Ivan Golikhin
 Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
+Description: Login fails for LDAP users after session timeout.
 ```
 
 ---
@@ -537,6 +538,7 @@ results.
 | `jql` | string | yes | JQL query string (e.g. `project = DEVOPS AND assignee = golikhin ORDER BY updated DESC`) |
 | `fields` | string | no | Comma-separated field names to return. Defaults to `summary,status,priority,duedate,assignee,issuetype,project,created,updated`. |
 | `max_results` | integer | no | Max results. Defaults to `50`. Capped at `100`. |
+| `include_description` | boolean | no | Also return each issue's description. Defaults to `false` to keep list responses compact. |
 
 **Example call:**
 
@@ -556,6 +558,15 @@ results.
 Issues matching JQL (2):
 - [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
 - [DEVOPS-102] Migrate Valkey chart | Open | priority=Medium | due=— | assignee=golikhin
+```
+
+With `include_description: true` each line is followed by an indented
+description:
+
+```text
+Issues matching JQL (1):
+- [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
+    Description: Split the release workflow into reusable jobs.
 ```
 
 ---

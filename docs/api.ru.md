@@ -14,7 +14,7 @@
 | [`get_worklog`](#-get_worklog) | Worklog'и | Получить один worklog по Tempo ID |
 | [`create_worklog`](#-create_worklog) | Worklog'и | Учесть время на задаче Jira |
 | [`delete_worklog`](#-delete_worklog) | Worklog'и | Удалить worklog по ID |
-| [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (8 полей) |
+| [`get_issue`](#-get_issue) | Задачи | Получить метаданные задачи Jira (9 полей, включая описание) |
 | [`list_favorite_issues`](#-list_favorite_issues) | Задачи | Список избранных задач текущего пользователя |
 | [`list_issues_by_jql`](#-list_issues_by_jql) | Задачи | Поиск задач через JQL-запрос |
 | [`get_current_user`](#-get_current_user) | Пользователи | Данные аутентифицированного пользователя |
@@ -175,8 +175,8 @@ Deleted worklog 12345.
 
 ## 📋 `get_issue`
 
-Получить метаданные задачи Jira: summary, статус, проект, приоритет,
-исполнителя, срок, тип задачи и компоненты (8 полей).
+Получить метаданные задачи Jira: summary, описание, статус, проект,
+приоритет, исполнителя, срок, тип задачи и компоненты (9 полей).
 
 **Параметры:**
 
@@ -204,6 +204,7 @@ Assignee: Ivan Golikhin
 Due date: 2026-06-20
 Issue type: Task
 Components: Backend, API
+Description: Login fails for LDAP users after session timeout.
 ```
 
 ---
@@ -542,6 +543,7 @@ Tasks for golikhin (2):
 | `jql` | string | да | Строка JQL-запроса (напр. `project = DEVOPS AND assignee = golikhin ORDER BY updated DESC`) |
 | `fields` | string | нет | Поля через запятую. По умолч. `summary,status,priority,duedate,assignee,issuetype,project,created,updated`. |
 | `max_results` | integer | нет | Максимальное количество результатов. По умолч. `50`. Ограничено `100`. |
+| `include_description` | boolean | нет | Дополнительно вернуть описание каждой задачи. По умолч. `false` — чтобы списки оставались компактными. |
 
 **Пример вызова:**
 
@@ -561,6 +563,14 @@ Tasks for golikhin (2):
 Issues matching JQL (2):
 - [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
 - [DEVOPS-102] Migrate Valkey chart | Open | priority=Medium | due=— | assignee=golikhin
+```
+
+С `include_description: true` после каждой строки идёт отступ с описанием:
+
+```text
+Issues matching JQL (1):
+- [DEVOPS-101] Refactor Helm release workflow | In Progress | priority=High | due=2026-06-20 | assignee=golikhin
+    Description: Split the release workflow into reusable jobs.
 ```
 
 ---

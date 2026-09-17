@@ -308,9 +308,9 @@ class JiraTempoClient:
     # --- Jira issue ---
 
     async def get_issue(self, issue_key: str) -> dict[str, Any]:
-        """Get issue metadata (key, summary, status, project, priority, assignee, duedate, issuetype, components)."""
+        """Get issue metadata (key, summary, status, project, priority, assignee, duedate, issuetype, components, description)."""
         url = f"{self._config.jira_api_base}/issue/{issue_key}"
-        fields = "summary,status,project,issuetype,priority,assignee,duedate,components"
+        fields = "summary,status,project,issuetype,priority,assignee,duedate,components,description"
         data = await self._request("GET", url, self._jira_headers(), params={"fields": fields})
         if not isinstance(data, dict):
             raise JiraTempoError(f"Unexpected response for issue {issue_key}")
@@ -800,10 +800,19 @@ class JiraTempoClient:
         jql: str,
         fields: str = "summary,status,priority,duedate,assignee,issuetype,project,created,updated",
         max_results: int = 50,
+        include_description: bool = False,
     ) -> list[dict[str, Any]]:
-        """Search Jira issues via JQL (read-only GET /rest/api/2/search)."""
+        """Search Jira issues via JQL (read-only GET /rest/api/2/search).
+
+        include_description: opt-in flag — when True, ``description`` is added
+        to the requested fields and included in each mapped issue. Defaults to
+        False so list responses keep the compact contract (descriptions can be
+        large and must not inflate list responses silently).
+        """
         if not isinstance(jql, str) or not jql.strip():
             raise JiraTempoError("jql must be a non-empty string.")
+        if include_description:
+            fields = f"{fields},description"
         # Cap the TOTAL result size at 100, but page through startAt/total
         # so the cap is honoured without early truncation on large result sets.
         capped_max = min(max_results, 100)
@@ -837,21 +846,22 @@ class JiraTempoClient:
             assignee_obj = fields_obj.get("assignee", {})
             if not isinstance(assignee_obj, dict):
                 assignee_obj = {}
-            issues.append(
-                {
-                    "key": issue.get("key", ""),
-                    "summary": fields_obj.get("summary", ""),
-                    "status": status_obj.get("name", ""),
-                    "priority": priority_obj.get("name", ""),
-                    "duedate": fields_obj.get("duedate", ""),
-                    "assignee": assignee_obj.get("displayName", ""),
-                    "issuetype": issuetype_obj.get("name", ""),
-                    "project": project_obj.get("name", ""),
-                    "projectKey": project_obj.get("key", ""),
-                    "created": fields_obj.get("created", ""),
-                    "updated": fields_obj.get("updated", ""),
-                }
-            )
+            mapped: dict[str, Any] = {
+                "key": issue.get("key", ""),
+                "summary": fields_obj.get("summary", ""),
+                "status": status_obj.get("name", ""),
+                "priority": priority_obj.get("name", ""),
+                "duedate": fields_obj.get("duedate", ""),
+                "assignee": assignee_obj.get("displayName", ""),
+                "issuetype": issuetype_obj.get("name", ""),
+                "project": project_obj.get("name", ""),
+                "projectKey": project_obj.get("key", ""),
+                "created": fields_obj.get("created", ""),
+                "updated": fields_obj.get("updated", ""),
+            }
+            if include_description:
+                mapped["description"] = fields_obj.get("description", "")
+            issues.append(mapped)
         return issues
 
     # --- Current user (UX-6) ---

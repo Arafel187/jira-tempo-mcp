@@ -157,6 +157,65 @@ async def test_search_issues_empty_result() -> None:
     assert result == []
 
 
+# --- search_issues: include_description flag ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_issues_include_description_true() -> None:
+    """include_description=True adds description to fields and to mapped issues."""
+    seen_fields: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_fields.append(dict(request.url.params)["fields"])
+        issue = dict(_issue("PROJ-0"))
+        issue["fields"] = {
+            **issue["fields"],  # type: ignore[dict-item]
+            "description": "Full issue description text.",
+        }
+        return httpx.Response(
+            200,
+            json={"issues": [issue], "startAt": 0, "maxResults": 100, "total": 1},
+        )
+
+    client = _client_with_transport(handler)
+    try:
+        result = await client.search_issues("project = PROJ", include_description=True)
+    finally:
+        await client.aclose()
+    assert "description" in seen_fields[0]
+    assert len(result) == 1
+    assert result[0]["description"] == "Full issue description text."
+
+
+@pytest.mark.asyncio
+async def test_search_issues_include_description_default_false() -> None:
+    """Default call: no description in fields param, no description in mapped issues."""
+    seen_fields: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_fields.append(dict(request.url.params)["fields"])
+        issue = dict(_issue("PROJ-0"))
+        # Server returns description even when it was not requested —
+        # the mapping must NOT include it when the flag is False.
+        issue["fields"] = {
+            **issue["fields"],  # type: ignore[dict-item]
+            "description": "Should be dropped.",
+        }
+        return httpx.Response(
+            200,
+            json={"issues": [issue], "startAt": 0, "maxResults": 100, "total": 1},
+        )
+
+    client = _client_with_transport(handler)
+    try:
+        result = await client.search_issues("project = PROJ")
+    finally:
+        await client.aclose()
+    assert "description" not in seen_fields[0]
+    assert len(result) == 1
+    assert "description" not in result[0]
+
+
 # --- list_user_tasks: same /search envelope, JQL assignee -------------------
 
 

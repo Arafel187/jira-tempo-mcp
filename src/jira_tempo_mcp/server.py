@@ -129,7 +129,10 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="get_issue",
-        description="Get Jira issue metadata: summary, status, project, priority, assignee, duedate, issuetype, components.",
+        description=(
+            "Get Jira issue metadata: summary, description, status, project, priority, "
+            "assignee, duedate, issuetype, components."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -348,7 +351,8 @@ TOOLS: list[Tool] = [
         description=(
             "Search Jira issues by JQL query (read-only). "
             "Returns a formatted list of issues with key, summary, status, priority, "
-            "duedate, assignee, issuetype, and project. Max 100 results."
+            "duedate, assignee, issuetype, and project. Max 100 results. "
+            "Set include_description=true to also return each issue's description."
         ),
         inputSchema={
             "type": "object",
@@ -369,6 +373,14 @@ TOOLS: list[Tool] = [
                     "type": "integer",
                     "description": "Max results. Defaults to 50. Capped at 100.",
                     "default": 50,
+                },
+                "include_description": {
+                    "type": "boolean",
+                    "description": (
+                        "Also return each issue's description. "
+                        "Defaults to false to keep list responses compact."
+                    ),
+                    "default": False,
                 },
             },
             "required": ["jql"],
@@ -787,6 +799,7 @@ async def _handle_get_issue(
     components = ", ".join(
         c.get("name", "") for c in components_list if isinstance(c, dict) and c.get("name")
     )
+    description = fields.get("description", "") or "—"
     lines = [f"{key}: {summary}"]
     lines.append(f"Status: {status}")
     lines.append(f"Project: {project}")
@@ -795,6 +808,7 @@ async def _handle_get_issue(
     lines.append(f"Due date: {duedate}")
     lines.append(f"Issue type: {issuetype or '—'}")
     lines.append(f"Components: {components or '—'}")
+    lines.append(f"Description: {description}")
     return "\n".join(lines)
 
 
@@ -1130,8 +1144,11 @@ async def _handle_list_issues_by_jql(
     max_results = arguments.get("max_results", 50)
     if not isinstance(max_results, int) or max_results < 1:
         raise ValueError("'max_results' must be a positive integer.")
+    include_description = bool(arguments.get("include_description", False))
 
-    issues = await client.search_issues(jql, fields=fields, max_results=max_results)
+    issues = await client.search_issues(
+        jql, fields=fields, max_results=max_results, include_description=include_description
+    )
     if not issues:
         return f"No issues found for JQL: {jql}"
 
@@ -1144,6 +1161,9 @@ async def _handle_list_issues_by_jql(
             f"- [{issue['key']}] {issue['summary']} | {issue['status']} | "
             f"priority={priority} | due={due} | assignee={assignee}"
         )
+        if include_description:
+            description = str(issue.get("description", "") or "—")
+            lines.append(f"    Description: {description}")
     return "\n".join(lines)
 
 
