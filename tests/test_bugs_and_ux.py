@@ -28,6 +28,7 @@ from jira_tempo_mcp.server import (
     _handle_list_issues_by_jql,
     _handle_list_user_tasks,
     _handle_list_worklogs,
+    _validate_tool_arguments,
 )
 from jira_tempo_mcp.team_report import generate_team_report
 
@@ -928,3 +929,23 @@ class TestAddIssueCommentTool:
                 cast(JiraTempoClient, mock_client),
             )
         mock_client.add_issue_comment.assert_not_awaited()
+
+
+class TestIssue33SchemaArgumentValidation:
+    """Issue #33: MCP tool schemas accept unknown arguments silently (e.g. maxResults vs max_results)."""
+
+    def test_well_formed_arguments_pass_validation(self) -> None:
+        errors = _validate_tool_arguments("list_issues_by_jql", {"jql": "project = TEST", "max_results": 25})
+        assert errors == []
+
+    def test_unknown_argument_rejected_with_camel_case_hint(self) -> None:
+        errors = _validate_tool_arguments("list_issues_by_jql", {"jql": "project = TEST", "maxResults": 25})
+        assert len(errors) == 1
+        assert "Validation error for tool 'list_issues_by_jql'" in errors[0]
+        assert "maxResults" in errors[0]
+        assert "'maxResults' appears to be camelCase for 'max_results'" in errors[0]
+
+    def test_unknown_tool_ignored(self) -> None:
+        errors = _validate_tool_arguments("non_existent_tool", {"any": 123})
+        assert errors == []
+

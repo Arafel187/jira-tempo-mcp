@@ -1525,6 +1525,40 @@ _TOOL_HANDLERS: dict[str, Any] = {
 }
 
 
+_TOOLS_BY_NAME: dict[str, Tool] = {t.name: t for t in TOOLS}
+
+
+def _validate_tool_arguments(name: str, arguments: dict[str, Any]) -> list[str]:
+    """Validate tool arguments against declared inputSchema properties.
+
+    Catches unknown or mistyped argument keys (such as camelCase maxResults
+    when snake_case max_results is declared) before handler dispatch (addresses #33).
+    """
+    tool_def = _TOOLS_BY_NAME.get(name)
+    if not tool_def or not isinstance(tool_def.inputSchema, dict):
+        return []
+
+    schema_props = set(tool_def.inputSchema.get("properties", {}).keys())
+    if not schema_props:
+        return []
+
+    unknown = [k for k in arguments.keys() if k not in schema_props]
+    if not unknown:
+        return []
+
+    hints: list[str] = []
+    for unk in sorted(unknown):
+        snake_candidate = re.sub(r"(?<!^)(?=[A-Z])", "_", unk).lower()
+        if snake_candidate in schema_props:
+            hints.append(f"'{unk}' appears to be camelCase for '{snake_candidate}'")
+
+    hint_msg = f" Note: {'; '.join(hints)}." if hints else ""
+    return [
+        f"Validation error for tool '{name}': unknown argument(s): {', '.join(sorted(unknown))}.{hint_msg} "
+        f"Valid parameters: {', '.join(sorted(schema_props))}."
+    ]
+
+
 async def serve(config: Config) -> None:
     """Run the MCP server over stdio."""
     # Pass the app version so MCP clients see it in serverInfo (the SDK
@@ -1541,6 +1575,12 @@ async def serve(config: Config) -> None:
         handler = _TOOL_HANDLERS.get(name)
         if handler is None:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+        # Pre-flight tool argument contract validation (addresses #33)
+        validation_errors = _validate_tool_arguments(name, arguments)
+        if validation_errors:
+            return [TextContent(type="text", text="\n".join(validation_errors))]
+
         async with JiraTempoClient(config) as client:
             try:
                 result = await handler(arguments, config, client)
